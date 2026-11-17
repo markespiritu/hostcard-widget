@@ -39,5 +39,5 @@ Needs the .NET 8 SDK.
 
 ```powershell
 .\build.ps1              # -> dist\IpWidget.exe (x64)
-.\build.ps1 -Arch arm64  # -> dist\arm64\IpWidget.exe
+.\build.ps1 -Arch arm64  # -> dist\IpWidget-arm64.exe
 ```
