@@ -11,8 +11,8 @@ namespace IpWidget;
 
 public partial class MainWindow : Window
 {
-    private static readonly Brush IdleBorder = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
-    private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromRgb(0x4C, 0xA8, 0xFF));
+    private static readonly Brush IdleBorder = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromArgb(0x99, 0x6C, 0xB8, 0xFF));
 
     private readonly int _slot;
     private readonly WidgetSettings _settings;
@@ -139,7 +139,6 @@ public partial class MainWindow : Window
             NativeMethods.SetExStyle(_hwnd, NativeMethods.WS_EX_TRANSPARENT, 0);
 
         Card.BorderBrush = want ? ActiveBorder : IdleBorder;
-        HintText.Visibility = want ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnLeftDown(object sender, MouseButtonEventArgs e)
@@ -267,21 +266,16 @@ public partial class MainWindow : Window
 
         if (nic == null)
         {
-            IpText.Text = "-";
-            MacText.Text = "-";
-            TypeText.Text = "-";
-            SpeedText.Text = "-";
-            AdapterText.Text = string.IsNullOrEmpty(_settings.AdapterId) ? "No network adapter" : "Selected adapter not found";
+            IpText.Text = string.IsNullOrEmpty(_settings.AdapterId) ? "No network adapter" : "Adapter not found";
+            MacText.Text = "";
+            LinkText.Text = "";
             return;
         }
 
         var info = NetworkInfo.Describe(nic);
         IpText.Text = info.Ip;
         MacText.Text = info.Mac;
-        TypeText.Text = info.Kind;
-        SpeedText.Text = info.Speed;
-        AdapterText.Text = (string.IsNullOrEmpty(_settings.AdapterId) ? "Auto: " : "") + $"{info.Name} · {info.Description}";
-        AdapterText.ToolTip = info.Description;
+        LinkText.Text = $"{info.Kind} · {info.Speed}";
     }
 
     protected override void OnClosed(EventArgs e)
