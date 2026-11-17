@@ -11,6 +11,8 @@ internal sealed class WidgetSettings
     public double? Left { get; set; }
     public double? Top { get; set; }
     public bool KeepOnTop { get; set; }
+    /// <summary>Size multiplier for the whole widget (1.0 = default).</summary>
+    public double Scale { get; set; } = 1.0;
 
     public static string Folder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IpWidget");

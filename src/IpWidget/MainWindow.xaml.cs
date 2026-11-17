@@ -25,6 +25,11 @@ public partial class MainWindow : Window
     private bool _menuOpen;
     private bool _dragging;
 
+    // Resizing: Ctrl + mouse wheel, or Ctrl + drag the bottom-right corner.
+    private const double MinScale = 0.6, MaxScale = 3.0, GripSize = 18;
+    private bool _resizing;
+    private double _resizeStartScale, _resizeStartWidth, _resizeStartX;
+
     internal MainWindow(int slot)
     {
         _slot = slot;
@@ -48,7 +53,12 @@ public partial class MainWindow : Window
 
         MouseLeftButtonDown += OnLeftDown;
         MouseRightButtonUp += OnRightUp;
+        MouseMove += OnMouseMove;
+        MouseLeftButtonUp += OnLeftUp;
+        MouseWheel += OnWheel;
         Loaded += OnLoaded;
+
+        ApplyScale(_settings.Scale);
 
         StartupShortcut.RefreshIfPresent(slot);
         Refresh();
@@ -129,21 +139,123 @@ public partial class MainWindow : Window
     private void UpdateInteractive()
     {
         if (_hwnd == IntPtr.Zero) return;
-        bool want = NativeMethods.IsCtrlDown() || _menuOpen || _dragging;
+        bool want = NativeMethods.IsCtrlDown() || _menuOpen || _dragging || _resizing;
         if (want == _interactive) return;
         _interactive = want;
 
         if (want)
+        {
             NativeMethods.SetExStyle(_hwnd, 0, NativeMethods.WS_EX_TRANSPARENT);
+            InstallWheelHook();
+        }
         else
+        {
             NativeMethods.SetExStyle(_hwnd, NativeMethods.WS_EX_TRANSPARENT, 0);
+            RemoveWheelHook();
+        }
 
         Card.BorderBrush = want ? ActiveBorder : IdleBorder;
+    }
+
+    // ---------- resizing ----------
+
+    private void ApplyScale(double scale)
+    {
+        scale = Math.Round(Math.Clamp(scale, MinScale, MaxScale), 2);
+        _settings.Scale = scale;
+        Card.LayoutTransform = Math.Abs(scale - 1.0) < 0.001 ? Transform.Identity : new ScaleTransform(scale, scale);
+        // Pixel-snapped text looks best at 100%; scaled text needs ideal layout to stay smooth.
+        TextOptions.SetTextFormattingMode(this, Math.Abs(scale - 1.0) < 0.001 ? TextFormattingMode.Display : TextFormattingMode.Ideal);
+    }
+
+    private bool InGrip(Point p) => p.X >= ActualWidth - GripSize && p.Y >= ActualHeight - GripSize;
+
+    private void OnWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!_interactive) return;
+        e.Handled = true;
+        StepScale(e.Delta);
+    }
+
+    private void StepScale(int delta)
+    {
+        ApplyScale(_settings.Scale + (delta > 0 ? 0.1 : -0.1));
+        _settings.Save(_slot);
+    }
+
+    // Only hooked while Ctrl is held, and only wheel events over the widget are taken.
+    private IntPtr _wheelHook;
+    private NativeMethods.LowLevelMouseProc? _wheelProc;
+
+    private void InstallWheelHook()
+    {
+        if (_wheelHook != IntPtr.Zero) return;
+        _wheelProc ??= WheelHookProc;
+        _wheelHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _wheelProc, NativeMethods.GetModuleHandle(null), 0);
+    }
+
+    private void RemoveWheelHook()
+    {
+        if (_wheelHook == IntPtr.Zero) return;
+        NativeMethods.UnhookWindowsHookEx(_wheelHook);
+        _wheelHook = IntPtr.Zero;
+    }
+
+    private IntPtr WheelHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && wParam == NativeMethods.WM_MOUSEWHEEL && _interactive
+            && NativeMethods.GetWindowRect(_hwnd, out var r))
+        {
+            var info = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+            // Must be over the widget AND the widget must be the visible window there (not covered by another app).
+            if (info.pt.X >= r.Left && info.pt.X < r.Right && info.pt.Y >= r.Top && info.pt.Y < r.Bottom
+                && NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(info.pt), NativeMethods.GA_ROOT) == _hwnd)
+            {
+                int delta = (short)(info.mouseData >> 16);
+                Dispatcher.BeginInvoke(() => StepScale(delta));
+                return new IntPtr(1); // swallow it so the window underneath doesn't scroll/zoom
+            }
+        }
+        return NativeMethods.CallNextHookEx(_wheelHook, nCode, wParam, lParam);
+    }
+
+    private void OnMouseMove(object sender, MouseEventArgs e)
+    {
+        var p = e.GetPosition(this);
+        if (_resizing)
+        {
+            // The top-left corner stays put, so the new width is simply where the mouse is plus the grab offset.
+            double newWidth = Math.Max(40, p.X + (_resizeStartWidth - _resizeStartX));
+            ApplyScale(_resizeStartScale * newWidth / _resizeStartWidth);
+            return;
+        }
+        Cursor = _interactive && InGrip(p) ? Cursors.SizeNWSE : null;
+    }
+
+    private void OnLeftUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_resizing) return;
+        _resizing = false;
+        ReleaseMouseCapture();
+        _settings.Save(_slot);
+        SendToBottom();
     }
 
     private void OnLeftDown(object sender, MouseButtonEventArgs e)
     {
         if (!_interactive) return;
+
+        var p = e.GetPosition(this);
+        if (InGrip(p))
+        {
+            _resizing = true;
+            _resizeStartScale = _settings.Scale;
+            _resizeStartWidth = ActualWidth;
+            _resizeStartX = p.X;
+            CaptureMouse();
+            return;
+        }
+
         _dragging = true;
         try { DragMove(); }
         catch (InvalidOperationException) { }
@@ -226,6 +338,14 @@ public partial class MainWindow : Window
         refresh.Click += (_, _) => Refresh();
         menu.Items.Add(refresh);
 
+        var resetSize = new MenuItem { Header = "Reset size" };
+        resetSize.Click += (_, _) =>
+        {
+            ApplyScale(1.0);
+            _settings.Save(_slot);
+        };
+        menu.Items.Add(resetSize);
+
         var reset = new MenuItem { Header = "Reset position" };
         reset.Click += (_, _) =>
         {
@@ -284,6 +404,7 @@ public partial class MainWindow : Window
         NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
         _keyTimer.Stop();
         _refreshTimer.Stop();
+        RemoveWheelHook();
         base.OnClosed(e);
     }
 }

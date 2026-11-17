@@ -45,6 +45,52 @@ internal static class NativeMethods
     [DllImport("iphlpapi.dll")]
     public static extern int GetBestInterface(uint dwDestAddr, out uint pdwBestIfIndex);
 
+    // Low-level mouse hook: the widget never takes focus, so Windows doesn't reliably send it wheel messages.
+    public const int WH_MOUSE_LL = 14;
+    public const int WM_MOUSEWHEEL = 0x020A;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr WindowFromPoint(POINT pt);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    public const uint GA_ROOT = 2;
+
     public static bool IsCtrlDown() => (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
 
     public static void SetExStyle(IntPtr hwnd, int add, int remove)

@@ -12,6 +12,7 @@ Handy when you're hopping between several PCs over Moonlight/RDP and can't remem
 | Action | How |
 | --- | --- |
 | Move it | Hold **Ctrl** and drag it. The border turns blue while Ctrl is held. Position is remembered. |
+| Resize it | Hold **Ctrl** and scroll the mouse wheel over it, or hold **Ctrl** and drag its bottom-right corner. Size is remembered; menu → **Reset size** goes back to 100%. |
 | Options menu | Hold **Ctrl** and right-click it. |
 | Pick the adapter | Menu → **Adapter**. *Automatic* follows whichever adapter Windows uses for internet traffic. |
 | Show it above windows | Menu → **Keep on top of other windows** |
