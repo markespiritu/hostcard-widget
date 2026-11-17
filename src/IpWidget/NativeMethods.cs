@@ -91,6 +91,48 @@ internal static class NativeMethods
     public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     public const uint GA_ROOT = 2;
 
+    // Standard Windows colour picker (comdlg32), so we don't need to pull in WinForms.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CHOOSECOLOR
+    {
+        public int lStructSize;
+        public IntPtr hwndOwner;
+        public IntPtr hInstance;
+        public int rgbResult;
+        public IntPtr lpCustColors;
+        public int Flags;
+        public IntPtr lCustData;
+        public IntPtr lpfnHook;
+        public IntPtr lpTemplateName;
+    }
+
+    [DllImport("comdlg32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ChooseColor(ref CHOOSECOLOR cc);
+
+    private const int CC_RGBINIT = 0x1, CC_FULLOPEN = 0x2;
+    private static readonly int[] CustomColors = new int[16];
+
+    public static System.Windows.Media.Color? PickColor(IntPtr owner, System.Windows.Media.Color initial)
+    {
+        var handle = GCHandle.Alloc(CustomColors, GCHandleType.Pinned);
+        try
+        {
+            var cc = new CHOOSECOLOR
+            {
+                lStructSize = Marshal.SizeOf<CHOOSECOLOR>(),
+                hwndOwner = owner,
+                rgbResult = initial.R | (initial.G << 8) | (initial.B << 16),
+                lpCustColors = handle.AddrOfPinnedObject(),
+                Flags = CC_RGBINIT | CC_FULLOPEN,
+            };
+            if (!ChooseColor(ref cc)) return null;
+            int c = cc.rgbResult;
+            return System.Windows.Media.Color.FromRgb((byte)(c & 0xFF), (byte)((c >> 8) & 0xFF), (byte)((c >> 16) & 0xFF));
+        }
+        finally { handle.Free(); }
+    }
+
     public static bool IsCtrlDown() => (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
 
     public static void SetExStyle(IntPtr hwnd, int add, int remove)

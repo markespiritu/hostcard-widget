@@ -13,7 +13,7 @@ public partial class MainWindow : Window
 {
     private static readonly Brush IdleBorder = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
     private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromArgb(0x99, 0x6C, 0xB8, 0xFF));
-    private static readonly Brush SecondaryText = new SolidColorBrush(Color.FromArgb(0xB3, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush LightCardBackground = new SolidColorBrush(Color.FromArgb(0xB8, 0xF2, 0xF2, 0xF2));
     private static readonly Brush CardBackground = new SolidColorBrush(Color.FromArgb(0xA6, 0x14, 0x14, 0x14));
     // Text-only mode while Ctrl is held: a faint panel so you can see what you're grabbing.
     private static readonly Brush GhostBackground = new SolidColorBrush(Color.FromArgb(0x40, 0x14, 0x14, 0x14));
@@ -173,20 +173,34 @@ public partial class MainWindow : Window
 
     // ---------- look ----------
 
+    private static Color ParseColor(string? hex)
+    {
+        try { return (Color)ColorConverter.ConvertFromString(hex ?? "#FFFFFF"); }
+        catch { return Colors.White; }
+    }
+
     private void ApplyLook()
     {
+        var text = ParseColor(_settings.TextColor);
+        // Dark text gets a light panel / light halo; light text gets dark ones.
+        bool darkText = (0.2126 * text.R + 0.7152 * text.G + 0.0722 * text.B) / 255.0 < 0.5;
+        var primary = new SolidColorBrush(text);
+        var secondary = new SolidColorBrush(Color.FromArgb(0xB3, text.R, text.G, text.B));
+        HostText.Foreground = IpText.Foreground = primary;
+        TextShadow.Color = HaloShadow.Color = darkText ? Colors.White : Colors.Black;
+
         if (_settings.ShowBackground)
         {
-            Card.Background = CardBackground;
+            Card.Background = darkText ? LightCardBackground : CardBackground;
             Card.BorderBrush = _interactive ? ActiveBorder : IdleBorder;
             Body.Effect = null;
             Halo.Effect = null;
-            LinkText.Foreground = MacText.Foreground = SecondaryText;
+            LinkText.Foreground = MacText.Foreground = secondary;
         }
         else
         {
-            // No panel behind the text: use full white everywhere so the shadow can carry it on light wallpapers.
-            LinkText.Foreground = MacText.Foreground = Brushes.White;
+            // No panel behind the text: full strength everywhere so the halo can carry it on any wallpaper.
+            LinkText.Foreground = MacText.Foreground = primary;
             Card.Background = _interactive ? GhostBackground : Brushes.Transparent;
             Card.BorderBrush = _interactive ? ActiveBorder : Brushes.Transparent;
             Body.Effect = _settings.TextShadow ? TextShadow : null;
@@ -357,6 +371,9 @@ public partial class MainWindow : Window
         menu.Items.Add(onTop);
 
         menu.Items.Add(FieldsMenu());
+        menu.Items.Add(IpFormatMenu());
+        menu.Items.Add(SizeMenu());
+        menu.Items.Add(ColorMenu());
 
         var background = new MenuItem { Header = "Show background", IsCheckable = true, IsChecked = _settings.ShowBackground };
         background.Click += (_, _) =>
@@ -471,15 +488,23 @@ public partial class MainWindow : Window
             return;
         }
 
-        IpText.Text = _info.Ip;
+        HostText.FontSize = s.HostnameSize;
+        IpText.FontSize = s.IpSize;
+        MacText.FontSize = s.MacSize;
+
+        IpText.Text = FormatIp(_info.Ip, s.IpFormat);
         IpText.Visibility = s.HideIp ? Visibility.Collapsed : Visibility.Visible;
         MacText.Text = _info.Mac;
 
-        var link = new List<string>();
-        if (!s.HideType) link.Add(_info.Kind);
-        if (!s.HideSpeed) link.Add(_info.Speed);
-        LinkText.Text = string.Join(" · ", link);
-        LinkText.Visibility = link.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        // Type and speed share a line but can have different sizes, so they're separate runs.
+        LinkText.Inlines.Clear();
+        if (!s.HideType)
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(_info.Kind) { FontSize = s.TypeSize });
+        if (!s.HideType && !s.HideSpeed)
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(" · ") { FontSize = Math.Min(s.TypeSize, s.SpeedSize) });
+        if (!s.HideSpeed)
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(_info.Speed) { FontSize = s.SpeedSize });
+        LinkText.Visibility = s.HideType && s.HideSpeed ? Visibility.Collapsed : Visibility.Visible;
 
         // No hostname: let the IP span both rows (vertically centred) instead of sitting under an empty gap.
         if (s.HideHostname)
@@ -496,6 +521,132 @@ public partial class MainWindow : Window
         // Keep the two columns apart only when both sides of a row are showing.
         HostText.Margin = new Thickness(0, 0, LinkText.Visibility == Visibility.Visible ? 18 : 0, 0);
         IpText.Margin = new Thickness(0, 1, MacText.Visibility == Visibility.Visible ? 18 : 0, 0);
+    }
+
+    private static string FormatIp(string ip, string format)
+    {
+        var parts = ip.Split('.');
+        if (parts.Length != 4) return ip; // "No IPv4 address", "-", etc.
+        return format switch
+        {
+            "last2" => $"{parts[2]}.{parts[3]}",
+            "last1" => $".{parts[3]}",
+            _ => ip,
+        };
+    }
+
+    private static readonly (string Name, string Hex)[] ColorPresets =
+    {
+        ("White", "#FFFFFF"), ("Light gray", "#C8C8C8"), ("Black", "#000000"), ("Yellow", "#FFE066"),
+        ("Orange", "#FFA94D"), ("Green", "#69DB7C"), ("Cyan", "#66D9E8"), ("Blue", "#74C0FC"),
+        ("Pink", "#F783AC"), ("Red", "#FF6B6B"),
+    };
+
+    private MenuItem ColorMenu()
+    {
+        var parent = new MenuItem { Header = "Text color" };
+        bool matched = false;
+        foreach (var (name, hex) in ColorPresets)
+        {
+            bool on = string.Equals(_settings.TextColor, hex, StringComparison.OrdinalIgnoreCase);
+            matched |= on;
+            var item = new MenuItem
+            {
+                Header = name,
+                IsCheckable = true,
+                IsChecked = on,
+                Icon = new Border
+                {
+                    Width = 14, Height = 14, CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush(ParseColor(hex)),
+                    BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1),
+                },
+            };
+            item.Click += (_, _) => SetTextColor(hex);
+            parent.Items.Add(item);
+        }
+        parent.Items.Add(new Separator());
+        var custom = new MenuItem { Header = matched ? "Custom…" : $"Custom ({_settings.TextColor})…", IsCheckable = true, IsChecked = !matched };
+        custom.Click += (_, _) =>
+        {
+            var picked = NativeMethods.PickColor(_hwnd, ParseColor(_settings.TextColor));
+            if (picked is Color c) SetTextColor($"#{c.R:X2}{c.G:X2}{c.B:X2}");
+        };
+        parent.Items.Add(custom);
+        return parent;
+    }
+
+    private void SetTextColor(string hex)
+    {
+        _settings.TextColor = hex;
+        _settings.Save(_slot);
+        ApplyLook();
+    }
+
+    private static readonly double[] SizePresets = { 9, 10, 11, 12, 13, 14, 16, 17, 18, 20, 22, 24, 28, 32, 36, 42, 48 };
+
+    private MenuItem SizeMenu()
+    {
+        var fields = new (string Label, Func<double> Get, Action<double> Set)[]
+        {
+            ("Hostname",    () => _settings.HostnameSize, v => _settings.HostnameSize = v),
+            ("IP address",  () => _settings.IpSize,       v => _settings.IpSize = v),
+            ("MAC address", () => _settings.MacSize,      v => _settings.MacSize = v),
+            ("Type",        () => _settings.TypeSize,     v => _settings.TypeSize = v),
+            ("Speed",       () => _settings.SpeedSize,    v => _settings.SpeedSize = v),
+        };
+        var parent = new MenuItem { Header = "Text size" };
+        foreach (var f in fields)
+        {
+            var sub = new MenuItem { Header = $"{f.Label}  ({f.Get():0.#})" };
+            foreach (var size in SizePresets)
+            {
+                var item = new MenuItem { Header = $"{size:0.#}", IsCheckable = true, IsChecked = Math.Abs(f.Get() - size) < 0.01 };
+                item.Click += (_, _) =>
+                {
+                    f.Set(size);
+                    _settings.Save(_slot);
+                    ApplyFields();
+                };
+                sub.Items.Add(item);
+            }
+            parent.Items.Add(sub);
+        }
+        parent.Items.Add(new Separator());
+        var reset = new MenuItem { Header = "Reset text sizes" };
+        reset.Click += (_, _) =>
+        {
+            var d = new WidgetSettings();
+            (_settings.HostnameSize, _settings.IpSize, _settings.MacSize, _settings.TypeSize, _settings.SpeedSize) =
+                (d.HostnameSize, d.IpSize, d.MacSize, d.TypeSize, d.SpeedSize);
+            _settings.Save(_slot);
+            ApplyFields();
+        };
+        parent.Items.Add(reset);
+        return parent;
+    }
+
+    private MenuItem IpFormatMenu()
+    {
+        string sample = _info?.Ip is string ip && ip.Split('.').Length == 4 ? ip : "192.168.26.218";
+        var parent = new MenuItem { Header = "IP address format" };
+        foreach (var (key, label) in new[] { ("full", "Full"), ("last2", "Last two parts"), ("last1", "Last part only") })
+        {
+            var item = new MenuItem
+            {
+                Header = $"{label}   {FormatIp(sample, key)}",
+                IsCheckable = true,
+                IsChecked = _settings.IpFormat == key || (key == "full" && _settings.IpFormat is not ("last2" or "last1")),
+            };
+            item.Click += (_, _) =>
+            {
+                _settings.IpFormat = key;
+                _settings.Save(_slot);
+                ApplyFields();
+            };
+            parent.Items.Add(item);
+        }
+        return parent;
     }
 
     private MenuItem FieldsMenu()

@@ -15,6 +15,19 @@ internal sealed class WidgetSettings
     public bool ShowBackground { get; set; } = true;
     /// <summary>Dark halo behind the text; only used when the background is off.</summary>
     public bool TextShadow { get; set; } = true;
+    /// <summary>Text colour as #RRGGBB.</summary>
+    public string TextColor { get; set; } = "#FFFFFF";
+
+    /// <summary>Font size of each field, in points at 100% scale.</summary>
+    public double HostnameSize { get; set; } = 17;
+    public double IpSize { get; set; } = 14;
+    public double MacSize { get; set; } = 12;
+    public double TypeSize { get; set; } = 12;
+    public double SpeedSize { get; set; } = 12;
+
+    /// <summary>"full" = 192.168.26.218, "last2" = 26.218, "last1" = .218</summary>
+    public string IpFormat { get; set; } = "full";
+
     /// <summary>Fields hidden from the widget (all shown by default).</summary>
     public bool HideHostname { get; set; }
     public bool HideIp { get; set; }
