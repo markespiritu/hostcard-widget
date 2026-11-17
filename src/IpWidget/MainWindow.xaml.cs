@@ -189,8 +189,8 @@ public partial class MainWindow : Window
             LinkText.Foreground = MacText.Foreground = Brushes.White;
             Card.Background = _interactive ? GhostBackground : Brushes.Transparent;
             Card.BorderBrush = _interactive ? ActiveBorder : Brushes.Transparent;
-            Body.Effect = TextShadow;
-            Halo.Effect = HaloShadow;
+            Body.Effect = _settings.TextShadow ? TextShadow : null;
+            Halo.Effect = _settings.TextShadow ? HaloShadow : null;
         }
     }
 
@@ -366,6 +366,21 @@ public partial class MainWindow : Window
             ApplyLook();
         };
         menu.Items.Add(background);
+
+        var shadow = new MenuItem
+        {
+            Header = "Text shadow (when background is off)",
+            IsCheckable = true,
+            IsChecked = _settings.TextShadow,
+            IsEnabled = !_settings.ShowBackground,
+        };
+        shadow.Click += (_, _) =>
+        {
+            _settings.TextShadow = !_settings.TextShadow;
+            _settings.Save(_slot);
+            ApplyLook();
+        };
+        menu.Items.Add(shadow);
 
         var startup = new MenuItem { Header = "Start with Windows", IsCheckable = true, IsChecked = StartupShortcut.Exists(_slot) };
         startup.Click += (_, _) =>

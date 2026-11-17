@@ -13,6 +13,8 @@ internal sealed class WidgetSettings
     public bool KeepOnTop { get; set; }
     /// <summary>False = text only (with a shadow so it stays readable on any wallpaper).</summary>
     public bool ShowBackground { get; set; } = true;
+    /// <summary>Dark halo behind the text; only used when the background is off.</summary>
+    public bool TextShadow { get; set; } = true;
     /// <summary>Fields hidden from the widget (all shown by default).</summary>
     public bool HideHostname { get; set; }
     public bool HideIp { get; set; }
