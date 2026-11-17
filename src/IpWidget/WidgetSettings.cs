@@ -11,6 +11,15 @@ internal sealed class WidgetSettings
     public double? Left { get; set; }
     public double? Top { get; set; }
     public bool KeepOnTop { get; set; }
+    /// <summary>False = text only (with a shadow so it stays readable on any wallpaper).</summary>
+    public bool ShowBackground { get; set; } = true;
+    /// <summary>Fields hidden from the widget (all shown by default).</summary>
+    public bool HideHostname { get; set; }
+    public bool HideIp { get; set; }
+    public bool HideMac { get; set; }
+    public bool HideType { get; set; }
+    public bool HideSpeed { get; set; }
+
     /// <summary>Size multiplier for the whole widget (1.0 = default).</summary>
     public double Scale { get; set; } = 1.0;
 

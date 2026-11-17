@@ -13,6 +13,19 @@ public partial class MainWindow : Window
 {
     private static readonly Brush IdleBorder = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
     private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromArgb(0x99, 0x6C, 0xB8, 0xFF));
+    private static readonly Brush SecondaryText = new SolidColorBrush(Color.FromArgb(0xB3, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush CardBackground = new SolidColorBrush(Color.FromArgb(0xA6, 0x14, 0x14, 0x14));
+    // Text-only mode while Ctrl is held: a faint panel so you can see what you're grabbing.
+    private static readonly Brush GhostBackground = new SolidColorBrush(Color.FromArgb(0x40, 0x14, 0x14, 0x14));
+    private static readonly System.Windows.Media.Effects.DropShadowEffect TextShadow = new()
+    {
+        Color = Colors.Black, BlurRadius = 3, ShadowDepth = 0, Opacity = 1,
+        RenderingBias = System.Windows.Media.Effects.RenderingBias.Quality,
+    };
+    private static readonly System.Windows.Media.Effects.DropShadowEffect HaloShadow = new()
+    {
+        Color = Colors.Black, BlurRadius = 6, ShadowDepth = 0, Opacity = 0.8, RenderingBias = System.Windows.Media.Effects.RenderingBias.Quality,
+    };
 
     private readonly int _slot;
     private readonly WidgetSettings _settings;
@@ -59,6 +72,7 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
 
         ApplyScale(_settings.Scale);
+        ApplyLook();
 
         StartupShortcut.RefreshIfPresent(slot);
         Refresh();
@@ -154,7 +168,30 @@ public partial class MainWindow : Window
             RemoveWheelHook();
         }
 
-        Card.BorderBrush = want ? ActiveBorder : IdleBorder;
+        ApplyLook();
+    }
+
+    // ---------- look ----------
+
+    private void ApplyLook()
+    {
+        if (_settings.ShowBackground)
+        {
+            Card.Background = CardBackground;
+            Card.BorderBrush = _interactive ? ActiveBorder : IdleBorder;
+            Body.Effect = null;
+            Halo.Effect = null;
+            LinkText.Foreground = MacText.Foreground = SecondaryText;
+        }
+        else
+        {
+            // No panel behind the text: use full white everywhere so the shadow can carry it on light wallpapers.
+            LinkText.Foreground = MacText.Foreground = Brushes.White;
+            Card.Background = _interactive ? GhostBackground : Brushes.Transparent;
+            Card.BorderBrush = _interactive ? ActiveBorder : Brushes.Transparent;
+            Body.Effect = TextShadow;
+            Halo.Effect = HaloShadow;
+        }
     }
 
     // ---------- resizing ----------
@@ -319,6 +356,17 @@ public partial class MainWindow : Window
         };
         menu.Items.Add(onTop);
 
+        menu.Items.Add(FieldsMenu());
+
+        var background = new MenuItem { Header = "Show background", IsCheckable = true, IsChecked = _settings.ShowBackground };
+        background.Click += (_, _) =>
+        {
+            _settings.ShowBackground = !_settings.ShowBackground;
+            _settings.Save(_slot);
+            ApplyLook();
+        };
+        menu.Items.Add(background);
+
         var startup = new MenuItem { Header = "Start with Windows", IsCheckable = true, IsChecked = StartupShortcut.Exists(_slot) };
         startup.Click += (_, _) =>
         {
@@ -384,18 +432,93 @@ public partial class MainWindow : Window
             ? NetworkInfo.Primary(candidates)
             : candidates.FirstOrDefault(n => n.Id == _settings.AdapterId);
 
-        if (nic == null)
+        _info = nic == null ? null : NetworkInfo.Describe(nic);
+        ApplyFields();
+    }
+
+    private AdapterInfo? _info;
+
+    /// <summary>Fills the text and hides whatever the user switched off; empty rows collapse on their own.</summary>
+    private void ApplyFields()
+    {
+        var s = _settings;
+        HostText.Visibility = s.HideHostname ? Visibility.Collapsed : Visibility.Visible;
+        MacText.Visibility = s.HideMac ? Visibility.Collapsed : Visibility.Visible;
+
+        if (_info == null)
         {
-            IpText.Text = string.IsNullOrEmpty(_settings.AdapterId) ? "No network adapter" : "Adapter not found";
+            // Always show why there's nothing, even if the IP field is hidden.
+            IpText.Text = string.IsNullOrEmpty(s.AdapterId) ? "No network adapter" : "Adapter not found";
+            IpText.Visibility = Visibility.Visible;
             MacText.Text = "";
             LinkText.Text = "";
+            LinkText.Visibility = Visibility.Collapsed;
             return;
         }
 
-        var info = NetworkInfo.Describe(nic);
-        IpText.Text = info.Ip;
-        MacText.Text = info.Mac;
-        LinkText.Text = $"{info.Kind} · {info.Speed}";
+        IpText.Text = _info.Ip;
+        IpText.Visibility = s.HideIp ? Visibility.Collapsed : Visibility.Visible;
+        MacText.Text = _info.Mac;
+
+        var link = new List<string>();
+        if (!s.HideType) link.Add(_info.Kind);
+        if (!s.HideSpeed) link.Add(_info.Speed);
+        LinkText.Text = string.Join(" · ", link);
+        LinkText.Visibility = link.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        // No hostname: let the IP span both rows (vertically centred) instead of sitting under an empty gap.
+        if (s.HideHostname)
+        {
+            Grid.SetRow(IpText, 0);
+            Grid.SetRowSpan(IpText, 2);
+        }
+        else
+        {
+            Grid.SetRow(IpText, 1);
+            Grid.SetRowSpan(IpText, 1);
+        }
+
+        // Keep the two columns apart only when both sides of a row are showing.
+        HostText.Margin = new Thickness(0, 0, LinkText.Visibility == Visibility.Visible ? 18 : 0, 0);
+        IpText.Margin = new Thickness(0, 1, MacText.Visibility == Visibility.Visible ? 18 : 0, 0);
+    }
+
+    private MenuItem FieldsMenu()
+    {
+        var fields = new (string Label, Func<bool> Hidden, Action<bool> SetHidden)[]
+        {
+            ("Hostname",    () => _settings.HideHostname, v => _settings.HideHostname = v),
+            ("IP address",  () => _settings.HideIp,       v => _settings.HideIp = v),
+            ("MAC address", () => _settings.HideMac,      v => _settings.HideMac = v),
+            ("Type (LAN/WLAN)", () => _settings.HideType, v => _settings.HideType = v),
+            ("Speed",       () => _settings.HideSpeed,    v => _settings.HideSpeed = v),
+        };
+
+        var parent = new MenuItem { Header = "Show fields" };
+        var items = new List<MenuItem>();
+        void UpdateEnabled()
+        {
+            // Don't allow hiding the last visible field, or the widget would vanish.
+            int shown = fields.Count(f => !f.Hidden());
+            for (int i = 0; i < fields.Length; i++)
+                items[i].IsEnabled = !(shown == 1 && !fields[i].Hidden());
+        }
+
+        foreach (var f in fields)
+        {
+            var item = new MenuItem { Header = f.Label, IsCheckable = true, IsChecked = !f.Hidden(), StaysOpenOnClick = true };
+            item.Click += (_, _) =>
+            {
+                f.SetHidden(!item.IsChecked);
+                _settings.Save(_slot);
+                ApplyFields();
+                UpdateEnabled();
+            };
+            items.Add(item);
+            parent.Items.Add(item);
+        }
+        UpdateEnabled();
+        return parent;
     }
 
     protected override void OnClosed(EventArgs e)

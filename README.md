@@ -15,6 +15,8 @@ Handy when you're hopping between several PCs over Moonlight/RDP and can't remem
 | Resize it | Hold **Ctrl** and scroll the mouse wheel over it, or hold **Ctrl** and drag its bottom-right corner. Size is remembered; menu → **Reset size** goes back to 100%. |
 | Options menu | Hold **Ctrl** and right-click it. |
 | Pick the adapter | Menu → **Adapter**. *Automatic* follows whichever adapter Windows uses for internet traffic. |
+| Hide fields (e.g. the MAC, for privacy) | Menu → **Show fields** and untick any of hostname, IP, MAC, type, speed. |
+| Text only, no background | Menu → untick **Show background**. The text gets a dark halo so it stays readable; holding Ctrl shows a faint outline so you can still grab it. |
 | Show it above windows | Menu → **Keep on top of other windows** |
 | Start with Windows | Menu → **Start with Windows** (adds a shortcut to your Startup folder) |
 | Lost it off-screen | Menu → **Reset position** (it also resets itself if its saved spot is no longer on any screen) |
