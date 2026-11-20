@@ -11,6 +11,40 @@ internal sealed class WidgetSettings
     public double? Left { get; set; }
     public double? Top { get; set; }
     public bool KeepOnTop { get; set; }
+    /// <summary>False = text only (with a shadow so it stays readable on any wallpaper).</summary>
+    public bool ShowBackground { get; set; } = true;
+    /// <summary>Dark halo behind the text; only used when the background is off.</summary>
+    public bool TextShadow { get; set; } = true;
+    /// <summary>Text colour as #RRGGBB.</summary>
+    public string TextColor { get; set; } = "#FFFFFF";
+
+    /// <summary>One font for every field; null = default (Segoe UI, with Consolas for the MAC).</summary>
+    public string? FontFamily { get; set; }
+
+    /// <summary>"upper" = FROGGER, "title" = Frogger, "lower" = frogger, "asis" = as typed when the PC was named.</summary>
+    public string HostnameCase { get; set; } = "upper";
+
+    /// <summary>Font size of each field, in points at 100% scale.</summary>
+    public double HostnameSize { get; set; } = 17;
+    public double IpSize { get; set; } = 14;
+    public double MacSize { get; set; } = 12;
+    public double TypeSize { get; set; } = 12;
+    public double SpeedSize { get; set; } = 12;
+
+    /// <summary>Vertical gap between the two rows, and horizontal gap between the left and right columns.</summary>
+    public double RowGap { get; set; } = 1;
+    public double ColumnGap { get; set; } = 18;
+
+    /// <summary>"full" =192.168.26.218, "last2" = 26.218, "last1" = .218</summary>
+    public string IpFormat { get; set; } = "full";
+
+    /// <summary>Fields hidden from the widget (all shown by default).</summary>
+    public bool HideHostname { get; set; }
+    public bool HideIp { get; set; }
+    public bool HideMac { get; set; }
+    public bool HideType { get; set; }
+    public bool HideSpeed { get; set; }
+
     /// <summary>Size multiplier for the whole widget (1.0 = default).</summary>
     public double Scale { get; set; } = 1.0;
 

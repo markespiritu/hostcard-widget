@@ -13,6 +13,19 @@ public partial class MainWindow : Window
 {
     private static readonly Brush IdleBorder = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
     private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromArgb(0x99, 0x6C, 0xB8, 0xFF));
+    private static readonly Brush LightCardBackground = new SolidColorBrush(Color.FromArgb(0xB8, 0xF2, 0xF2, 0xF2));
+    private static readonly Brush CardBackground = new SolidColorBrush(Color.FromArgb(0xA6, 0x14, 0x14, 0x14));
+    // Text-only mode while Ctrl is held: a faint panel so you can see what you're grabbing.
+    private static readonly Brush GhostBackground = new SolidColorBrush(Color.FromArgb(0x40, 0x14, 0x14, 0x14));
+    private static readonly System.Windows.Media.Effects.DropShadowEffect TextShadow = new()
+    {
+        Color = Colors.Black, BlurRadius = 3, ShadowDepth = 0, Opacity = 1,
+        RenderingBias = System.Windows.Media.Effects.RenderingBias.Quality,
+    };
+    private static readonly System.Windows.Media.Effects.DropShadowEffect HaloShadow = new()
+    {
+        Color = Colors.Black, BlurRadius = 6, ShadowDepth = 0, Opacity = 0.8, RenderingBias = System.Windows.Media.Effects.RenderingBias.Quality,
+    };
 
     private readonly int _slot;
     private readonly WidgetSettings _settings;
@@ -59,6 +72,7 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
 
         ApplyScale(_settings.Scale);
+        ApplyLook();
 
         StartupShortcut.RefreshIfPresent(slot);
         Refresh();
@@ -80,7 +94,7 @@ public partial class MainWindow : Window
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         // Pin to the bottom of the z-order so it sits on the desktop under every other window.
-        if (msg == NativeMethods.WM_WINDOWPOSCHANGING && !_settings.KeepOnTop)
+        if (msg == NativeMethods.WM_WINDOWPOSCHANGING && !_settings.KeepOnTop && !_forceOnTop)
         {
             var wp = Marshal.PtrToStructure<NativeMethods.WINDOWPOS>(lParam);
             if ((wp.flags & NativeMethods.SWP_NOZORDER) == 0)
@@ -94,7 +108,7 @@ public partial class MainWindow : Window
 
     private void SendToBottom()
     {
-        if (_hwnd == IntPtr.Zero || _settings.KeepOnTop) return;
+        if (_hwnd == IntPtr.Zero || _settings.KeepOnTop || _forceOnTop) return;
         NativeMethods.SetWindowPos(_hwnd, NativeMethods.HWND_BOTTOM, 0, 0, 0, 0,
             NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
     }
@@ -154,7 +168,44 @@ public partial class MainWindow : Window
             RemoveWheelHook();
         }
 
-        Card.BorderBrush = want ? ActiveBorder : IdleBorder;
+        ApplyLook();
+    }
+
+    // ---------- look ----------
+
+    private static Color ParseColor(string? hex)
+    {
+        try { return (Color)ColorConverter.ConvertFromString(hex ?? "#FFFFFF"); }
+        catch { return Colors.White; }
+    }
+
+    private void ApplyLook()
+    {
+        var text = ParseColor(_settings.TextColor);
+        // Dark text gets a light panel / light halo; light text gets dark ones.
+        bool darkText = (0.2126 * text.R + 0.7152 * text.G + 0.0722 * text.B) / 255.0 < 0.5;
+        var primary = new SolidColorBrush(text);
+        var secondary = new SolidColorBrush(Color.FromArgb(0xB3, text.R, text.G, text.B));
+        HostText.Foreground = IpText.Foreground = primary;
+        TextShadow.Color = HaloShadow.Color = darkText ? Colors.White : Colors.Black;
+
+        if (_settings.ShowBackground)
+        {
+            Card.Background = darkText ? LightCardBackground : CardBackground;
+            Card.BorderBrush = _interactive ? ActiveBorder : IdleBorder;
+            Body.Effect = null;
+            Halo.Effect = null;
+            LinkText.Foreground = MacText.Foreground = secondary;
+        }
+        else
+        {
+            // No panel behind the text: full strength everywhere so the halo can carry it on any wallpaper.
+            LinkText.Foreground = MacText.Foreground = primary;
+            Card.Background = _interactive ? GhostBackground : Brushes.Transparent;
+            Card.BorderBrush = _interactive ? ActiveBorder : Brushes.Transparent;
+            Body.Effect = _settings.TextShadow ? TextShadow : null;
+            Halo.Effect = _settings.TextShadow ? HaloShadow : null;
+        }
     }
 
     // ---------- resizing ----------
@@ -319,6 +370,38 @@ public partial class MainWindow : Window
         };
         menu.Items.Add(onTop);
 
+        menu.Items.Add(FieldsMenu());
+        menu.Items.Add(IpFormatMenu());
+        menu.Items.Add(HostnameCaseMenu());
+        menu.Items.Add(FontMenu());
+        menu.Items.Add(SizeMenu());
+        menu.Items.Add(SpacingMenu());
+        menu.Items.Add(ColorMenu());
+
+        var background = new MenuItem { Header = "Show background", IsCheckable = true, IsChecked = _settings.ShowBackground };
+        background.Click += (_, _) =>
+        {
+            _settings.ShowBackground = !_settings.ShowBackground;
+            _settings.Save(_slot);
+            ApplyLook();
+        };
+        menu.Items.Add(background);
+
+        var shadow = new MenuItem
+        {
+            Header = "Text shadow (when background is off)",
+            IsCheckable = true,
+            IsChecked = _settings.TextShadow,
+            IsEnabled = !_settings.ShowBackground,
+        };
+        shadow.Click += (_, _) =>
+        {
+            _settings.TextShadow = !_settings.TextShadow;
+            _settings.Save(_slot);
+            ApplyLook();
+        };
+        menu.Items.Add(shadow);
+
         var startup = new MenuItem { Header = "Start with Windows", IsCheckable = true, IsChecked = StartupShortcut.Exists(_slot) };
         startup.Click += (_, _) =>
         {
@@ -377,25 +460,389 @@ public partial class MainWindow : Window
 
     private void Refresh()
     {
-        HostText.Text = Environment.MachineName;
-
         var candidates = NetworkInfo.Candidates();
         NetworkInterface? nic = string.IsNullOrEmpty(_settings.AdapterId)
             ? NetworkInfo.Primary(candidates)
             : candidates.FirstOrDefault(n => n.Id == _settings.AdapterId);
 
-        if (nic == null)
+        _info = nic == null ? null : NetworkInfo.Describe(nic);
+        ApplyFields();
+    }
+
+    private AdapterInfo? _info;
+
+    /// <summary>Fills the text and hides whatever the user switched off; empty rows collapse on their own.</summary>
+    private void ApplyFields()
+    {
+        var s = _settings;
+        HostText.Visibility = s.HideHostname ? Visibility.Collapsed : Visibility.Visible;
+        MacText.Visibility = s.HideMac ? Visibility.Collapsed : Visibility.Visible;
+
+        ApplyFont(_previewing ? _previewFamily : s.FontFamily);
+        HostText.Text = FormatHostname(s.HostnameCase);
+        HostText.FontSize = s.HostnameSize;
+        IpText.FontSize = s.IpSize;
+        MacText.FontSize = s.MacSize;
+
+        if (_info == null)
         {
-            IpText.Text = string.IsNullOrEmpty(_settings.AdapterId) ? "No network adapter" : "Adapter not found";
+            // Always show why there's nothing, even if the IP field is hidden.
+            IpText.Text = string.IsNullOrEmpty(s.AdapterId) ? "No network adapter" : "Adapter not found";
+            IpText.Visibility = Visibility.Visible;
             MacText.Text = "";
             LinkText.Text = "";
+            LinkText.Visibility = Visibility.Collapsed;
             return;
         }
 
-        var info = NetworkInfo.Describe(nic);
-        IpText.Text = info.Ip;
-        MacText.Text = info.Mac;
-        LinkText.Text = $"{info.Kind} · {info.Speed}";
+        IpText.Text = FormatIp(_info.Ip, s.IpFormat);
+        IpText.Visibility = s.HideIp ? Visibility.Collapsed : Visibility.Visible;
+        MacText.Text = _info.Mac;
+
+        // Type and speed share a line but can have different sizes, so they're separate runs.
+        LinkText.Inlines.Clear();
+        if (!s.HideType)
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(_info.Kind) { FontSize = s.TypeSize });
+        if (!s.HideType && !s.HideSpeed)
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(" · ") { FontSize = Math.Min(s.TypeSize, s.SpeedSize) });
+        if (!s.HideSpeed)
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(_info.Speed) { FontSize = s.SpeedSize });
+        LinkText.Visibility = s.HideType && s.HideSpeed ? Visibility.Collapsed : Visibility.Visible;
+
+        // No hostname: let the IP span both rows (vertically centred) instead of sitting under an empty gap.
+        if (s.HideHostname)
+        {
+            Grid.SetRow(IpText, 0);
+            Grid.SetRowSpan(IpText, 2);
+        }
+        else
+        {
+            Grid.SetRow(IpText, 1);
+            Grid.SetRowSpan(IpText, 1);
+        }
+
+        // Keep the two columns apart only when both sides of a row are showing.
+        // Gaps are user-adjustable (Spacing menu): rows only get a gap when there's a row above them.
+        double col = s.ColumnGap, row = s.RowGap;
+        bool topRowShown = HostText.Visibility == Visibility.Visible || LinkText.Visibility == Visibility.Visible;
+        HostText.Margin = new Thickness(0, 0, LinkText.Visibility == Visibility.Visible ? col : 0, 0);
+        IpText.Margin = new Thickness(0, s.HideHostname || !topRowShown ? 0 : row, MacText.Visibility == Visibility.Visible ? col : 0, 0);
+        MacText.Margin = new Thickness(0, topRowShown ? row : 0, 0, 0);
+    }
+
+    // ---------- font & hostname case ----------
+
+    private static readonly FontFamily DefaultFont = new("Segoe UI");
+    private static readonly FontFamily DefaultMacFont = new("Consolas");
+
+    /// <summary>Applies a font to every field (null = defaults). Also used for live preview while browsing.</summary>
+    private void ApplyFont(string? family)
+    {
+        var font = string.IsNullOrEmpty(family) ? null : new FontFamily(family);
+        HostText.FontFamily = IpText.FontFamily = LinkText.FontFamily = font ?? DefaultFont;
+        MacText.FontFamily = font ?? DefaultMacFont;
+    }
+
+    private static string FormatHostname(string mode)
+    {
+        // MachineName is the NetBIOS name (always upper case); the DNS host name keeps the case it was typed in.
+        string asTyped;
+        try { asTyped = System.Net.Dns.GetHostName(); } catch { asTyped = Environment.MachineName; }
+        if (!asTyped.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase)
+            && !asTyped.StartsWith(Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+            asTyped = Environment.MachineName;
+
+        return mode switch
+        {
+            "title" => asTyped.Length == 0 ? asTyped : char.ToUpperInvariant(asTyped[0]) + asTyped[1..].ToLowerInvariant(),
+            "lower" => asTyped.ToLowerInvariant(),
+            "asis" => asTyped,
+            _ => asTyped.ToUpperInvariant(),
+        };
+    }
+
+    private MenuItem HostnameCaseMenu()
+    {
+        var parent = new MenuItem { Header = "Hostname capitalization" };
+        foreach (var (key, label) in new[] { ("upper", "UPPERCASE"), ("title", "Capitalized"), ("lower", "lowercase"), ("asis", "As named in Windows") })
+        {
+            var item = new MenuItem
+            {
+                Header = $"{label}   {FormatHostname(key)}",
+                IsCheckable = true,
+                IsChecked = _settings.HostnameCase == key,
+            };
+            item.Click += (_, _) =>
+            {
+                _settings.HostnameCase = key;
+                _settings.Save(_slot);
+                ApplyFields();
+            };
+            parent.Items.Add(item);
+        }
+        return parent;
+    }
+
+    private MenuItem FontMenu()
+    {
+        var item = new MenuItem { Header = $"Font…  ({_settings.FontFamily ?? "Default"})" };
+        item.Click += (_, _) => Dispatcher.BeginInvoke(PickFont);
+        return item;
+    }
+
+    /// <summary>Opens the font list; the widget previews each font as it's selected.</summary>
+    private void PickFont()
+    {
+        var picker = new FontPickerWindow(_settings.FontFamily, InstalledFonts.Value, Preview);
+        // Lift the widget above other windows while picking, so the live preview is actually visible.
+        _forceOnTop = true;
+        Topmost = true;
+        bool ok;
+        try { ok = picker.ShowDialog() == true; }
+        finally
+        {
+            _forceOnTop = false;
+            Topmost = _settings.KeepOnTop;
+            SendToBottom();
+        }
+        if (ok)
+        {
+            _settings.FontFamily = picker.Chosen;
+            _settings.Save(_slot);
+        }
+        EndPreview();
+    }
+
+    // While previewing, periodic refreshes must keep the previewed font rather than snap back.
+    private bool _previewing;
+    private bool _forceOnTop;
+    private string? _previewFamily;
+
+    private void Preview(string? family)
+    {
+        _previewing = true;
+        _previewFamily = family;
+        ApplyFont(family);
+    }
+
+    private void EndPreview()
+    {
+        _previewing = false;
+        _previewFamily = null;
+        ApplyFont(_settings.FontFamily);
+    }
+
+    private static readonly Lazy<List<string>> InstalledFonts = new(() =>
+        Fonts.SystemFontFamilies
+            .Select(f => f.Source)
+            .Where(n => !n.StartsWith("@") && !n.Contains('#'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList());
+
+    private static string FormatIp(string ip, string format)
+    {
+        var parts = ip.Split('.');
+        if (parts.Length != 4) return ip; // "No IPv4 address", "-", etc.
+        return format switch
+        {
+            "last2" => $"{parts[2]}.{parts[3]}",
+            "last1" => $".{parts[3]}",
+            _ => ip,
+        };
+    }
+
+    private static readonly (string Name, string Hex)[] ColorPresets =
+    {
+        ("White", "#FFFFFF"), ("Light gray", "#C8C8C8"), ("Black", "#000000"), ("Yellow", "#FFE066"),
+        ("Orange", "#FFA94D"), ("Green", "#69DB7C"), ("Cyan", "#66D9E8"), ("Blue", "#74C0FC"),
+        ("Pink", "#F783AC"), ("Red", "#FF6B6B"),
+    };
+
+    private MenuItem ColorMenu()
+    {
+        var parent = new MenuItem { Header = "Text color" };
+        bool matched = false;
+        foreach (var (name, hex) in ColorPresets)
+        {
+            bool on = string.Equals(_settings.TextColor, hex, StringComparison.OrdinalIgnoreCase);
+            matched |= on;
+            var item = new MenuItem
+            {
+                Header = name,
+                IsCheckable = true,
+                IsChecked = on,
+                Icon = new Border
+                {
+                    Width = 14, Height = 14, CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush(ParseColor(hex)),
+                    BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1),
+                },
+            };
+            item.Click += (_, _) => SetTextColor(hex);
+            parent.Items.Add(item);
+        }
+        parent.Items.Add(new Separator());
+        var custom = new MenuItem { Header = matched ? "Custom…" : $"Custom ({_settings.TextColor})…", IsCheckable = true, IsChecked = !matched };
+        custom.Click += (_, _) =>
+        {
+            var picked = NativeMethods.PickColor(_hwnd, ParseColor(_settings.TextColor));
+            if (picked is Color c) SetTextColor($"#{c.R:X2}{c.G:X2}{c.B:X2}");
+        };
+        parent.Items.Add(custom);
+        return parent;
+    }
+
+    private void SetTextColor(string hex)
+    {
+        _settings.TextColor = hex;
+        _settings.Save(_slot);
+        ApplyLook();
+    }
+
+    private static readonly double[] SizePresets = { 9, 10, 11, 12, 13, 14, 16, 17, 18, 20, 22, 24, 28, 32, 36, 42, 48 };
+
+    private MenuItem SizeMenu()
+    {
+        var fields = new (string Label, Func<double> Get, Action<double> Set)[]
+        {
+            ("Hostname",    () => _settings.HostnameSize, v => _settings.HostnameSize = v),
+            ("IP address",  () => _settings.IpSize,       v => _settings.IpSize = v),
+            ("MAC address", () => _settings.MacSize,      v => _settings.MacSize = v),
+            ("Type",        () => _settings.TypeSize,     v => _settings.TypeSize = v),
+            ("Speed",       () => _settings.SpeedSize,    v => _settings.SpeedSize = v),
+        };
+        var parent = new MenuItem { Header = "Text size" };
+        foreach (var f in fields)
+        {
+            var sub = new MenuItem { Header = $"{f.Label}  ({f.Get():0.#})" };
+            foreach (var size in SizePresets)
+            {
+                var item = new MenuItem { Header = $"{size:0.#}", IsCheckable = true, IsChecked = Math.Abs(f.Get() - size) < 0.01 };
+                item.Click += (_, _) =>
+                {
+                    f.Set(size);
+                    _settings.Save(_slot);
+                    ApplyFields();
+                };
+                sub.Items.Add(item);
+            }
+            parent.Items.Add(sub);
+        }
+        parent.Items.Add(new Separator());
+        var reset = new MenuItem { Header = "Reset text sizes" };
+        reset.Click += (_, _) =>
+        {
+            var d = new WidgetSettings();
+            (_settings.HostnameSize, _settings.IpSize, _settings.MacSize, _settings.TypeSize, _settings.SpeedSize) =
+                (d.HostnameSize, d.IpSize, d.MacSize, d.TypeSize, d.SpeedSize);
+            _settings.Save(_slot);
+            ApplyFields();
+        };
+        parent.Items.Add(reset);
+        return parent;
+    }
+
+    private MenuItem SpacingMenu()
+    {
+        var parent = new MenuItem { Header = "Spacing" };
+
+        MenuItem Group(string label, double[] values, Func<double> get, Action<double> set)
+        {
+            var sub = new MenuItem { Header = $"{label}  ({get():0.#})" };
+            foreach (var v in values)
+            {
+                var item = new MenuItem { Header = $"{v:0.#}", IsCheckable = true, IsChecked = Math.Abs(get() - v) < 0.01, StaysOpenOnClick = true };
+                item.Click += (_, _) =>
+                {
+                    set(v);
+                    _settings.Save(_slot);
+                    ApplyFields();
+                    foreach (MenuItem other in sub.Items) other.IsChecked = ReferenceEquals(other, item);
+                    sub.Header = $"{label}  ({v:0.#})";
+                };
+                sub.Items.Add(item);
+            }
+            return sub;
+        }
+
+        parent.Items.Add(Group("Between rows", new double[] { -6, -4, -2, 0, 1, 2, 4, 6, 8, 12, 16, 20, 28 },
+            () => _settings.RowGap, v => _settings.RowGap = v));
+        parent.Items.Add(Group("Between columns", new double[] { 4, 8, 12, 18, 24, 32, 48, 64 },
+            () => _settings.ColumnGap, v => _settings.ColumnGap = v));
+        parent.Items.Add(new Separator());
+        var reset = new MenuItem { Header = "Reset spacing" };
+        reset.Click += (_, _) =>
+        {
+            var d = new WidgetSettings();
+            _settings.RowGap = d.RowGap;
+            _settings.ColumnGap = d.ColumnGap;
+            _settings.Save(_slot);
+            ApplyFields();
+        };
+        parent.Items.Add(reset);
+        return parent;
+    }
+
+    private MenuItem IpFormatMenu()
+    {
+        string sample = _info?.Ip is string ip && ip.Split('.').Length == 4 ? ip : "192.168.26.218";
+        var parent = new MenuItem { Header = "IP address format" };
+        foreach (var (key, label) in new[] { ("full", "Full"), ("last2", "Last two parts"), ("last1", "Last part only") })
+        {
+            var item = new MenuItem
+            {
+                Header = $"{label}   {FormatIp(sample, key)}",
+                IsCheckable = true,
+                IsChecked = _settings.IpFormat == key || (key == "full" && _settings.IpFormat is not ("last2" or "last1")),
+            };
+            item.Click += (_, _) =>
+            {
+                _settings.IpFormat = key;
+                _settings.Save(_slot);
+                ApplyFields();
+            };
+            parent.Items.Add(item);
+        }
+        return parent;
+    }
+
+    private MenuItem FieldsMenu()
+    {
+        var fields = new (string Label, Func<bool> Hidden, Action<bool> SetHidden)[]
+        {
+            ("Hostname",    () => _settings.HideHostname, v => _settings.HideHostname = v),
+            ("IP address",  () => _settings.HideIp,       v => _settings.HideIp = v),
+            ("MAC address", () => _settings.HideMac,      v => _settings.HideMac = v),
+            ("Type (LAN/WLAN)", () => _settings.HideType, v => _settings.HideType = v),
+            ("Speed",       () => _settings.HideSpeed,    v => _settings.HideSpeed = v),
+        };
+
+        var parent = new MenuItem { Header = "Show fields" };
+        var items = new List<MenuItem>();
+        void UpdateEnabled()
+        {
+            // Don't allow hiding the last visible field, or the widget would vanish.
+            int shown = fields.Count(f => !f.Hidden());
+            for (int i = 0; i < fields.Length; i++)
+                items[i].IsEnabled = !(shown == 1 && !fields[i].Hidden());
+        }
+
+        foreach (var f in fields)
+        {
+            var item = new MenuItem { Header = f.Label, IsCheckable = true, IsChecked = !f.Hidden(), StaysOpenOnClick = true };
+            item.Click += (_, _) =>
+            {
+                f.SetHidden(!item.IsChecked);
+                _settings.Save(_slot);
+                ApplyFields();
+                UpdateEnabled();
+            };
+            items.Add(item);
+            parent.Items.Add(item);
+        }
+        UpdateEnabled();
+        return parent;
     }
 
     protected override void OnClosed(EventArgs e)

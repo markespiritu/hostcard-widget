@@ -15,6 +15,14 @@ Handy when you're hopping between several PCs over Moonlight/RDP and can't remem
 | Resize it | Hold **Ctrl** and scroll the mouse wheel over it, or hold **Ctrl** and drag its bottom-right corner. Size is remembered; menu → **Reset size** goes back to 100%. |
 | Options menu | Hold **Ctrl** and right-click it. |
 | Pick the adapter | Menu → **Adapter**. *Automatic* follows whichever adapter Windows uses for internet traffic. |
+| Hide fields (e.g. the MAC, for privacy) | Menu → **Show fields** and untick any of hostname, IP, MAC, type, speed. |
+| Short IP (e.g. `26.218`) | Menu → **IP address format** → Full / Last two parts / Last part only. |
+| Text size per field | Menu → **Text size** → pick a size for hostname, IP, MAC, type and speed separately. |
+| Spacing | Menu → **Spacing** → **Between rows** (negative values pull the rows closer) and **Between columns**. The menu stays open so you can see each change. |
+| Font | Menu → **Font…** opens a searchable list. The widget switches to each font as you select it (arrow keys or click); **OK** keeps it, **Cancel** puts the old one back. One font is used for every field. |
+| Hostname capitalization | Menu → **Hostname capitalization** → UPPERCASE, Capitalized (`Frogger`), lowercase, or as named in Windows. |
+| Text colour | Menu → **Text color** → a preset, or **Custom…** for the Windows colour picker. Dark colours automatically get a light panel / light halo. |
+| Text only, no background | Menu → untick **Show background**. The text gets a dark halo so it stays readable; holding Ctrl shows a faint outline so you can still grab it. Untick **Text shadow** to drop the halo too. |
 | Show it above windows | Menu → **Keep on top of other windows** |
 | Start with Windows | Menu → **Start with Windows** (adds a shortcut to your Startup folder) |
 | Lost it off-screen | Menu → **Reset position** (it also resets itself if its saved spot is no longer on any screen) |
@@ -39,5 +47,5 @@ Needs the .NET 8 SDK.
 
 ```powershell
 .\build.ps1              # -> dist\IpWidget.exe (x64)
-.\build.ps1 -Arch arm64  # -> dist\arm64\IpWidget.exe
+.\build.ps1 -Arch arm64  # -> dist\IpWidget-arm64.exe
 ```
