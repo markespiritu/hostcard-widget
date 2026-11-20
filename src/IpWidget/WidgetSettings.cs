@@ -3,6 +3,14 @@ using System.Text.Json;
 
 namespace IpWidget;
 
+internal sealed class FieldStyle
+{
+    /// <summary>Light, Normal, Medium, SemiBold, Bold or Black.</summary>
+    public string Weight { get; set; } = "Normal";
+    public bool Italic { get; set; }
+    public bool Underline { get; set; }
+}
+
 /// <summary>Per-slot settings, stored in %APPDATA%\IpWidget\slot{N}.json.</summary>
 internal sealed class WidgetSettings
 {
@@ -30,6 +38,13 @@ internal sealed class WidgetSettings
     public double MacSize { get; set; } = 12;
     public double TypeSize { get; set; } = 12;
     public double SpeedSize { get; set; } = 12;
+
+    /// <summary>Weight / italic / underline per field.</summary>
+    public FieldStyle HostnameStyle { get; set; } = new() { Weight = "SemiBold" };
+    public FieldStyle IpStyle { get; set; } = new();
+    public FieldStyle MacStyle { get; set; } = new();
+    public FieldStyle TypeStyle { get; set; } = new();
+    public FieldStyle SpeedStyle { get; set; } = new();
 
     /// <summary>Vertical gap between the two rows, and horizontal gap between the left and right columns.</summary>
     public double RowGap { get; set; } = 1;

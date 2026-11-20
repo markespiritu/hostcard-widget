@@ -375,6 +375,7 @@ public partial class MainWindow : Window
         menu.Items.Add(HostnameCaseMenu());
         menu.Items.Add(FontMenu());
         menu.Items.Add(SizeMenu());
+        menu.Items.Add(StyleMenu());
         menu.Items.Add(SpacingMenu());
         menu.Items.Add(ColorMenu());
 
@@ -483,6 +484,9 @@ public partial class MainWindow : Window
         HostText.FontSize = s.HostnameSize;
         IpText.FontSize = s.IpSize;
         MacText.FontSize = s.MacSize;
+        StyleText(HostText, s.HostnameStyle ?? new FieldStyle { Weight = "SemiBold" });
+        StyleText(IpText, s.IpStyle ?? new FieldStyle());
+        StyleText(MacText, s.MacStyle ?? new FieldStyle());
 
         if (_info == null)
         {
@@ -502,11 +506,19 @@ public partial class MainWindow : Window
         // Type and speed share a line but can have different sizes, so they're separate runs.
         LinkText.Inlines.Clear();
         if (!s.HideType)
-            LinkText.Inlines.Add(new System.Windows.Documents.Run(_info.Kind) { FontSize = s.TypeSize });
+        {
+            var run = new System.Windows.Documents.Run(_info.Kind) { FontSize = s.TypeSize };
+            StyleText(run, s.TypeStyle ?? new FieldStyle());
+            LinkText.Inlines.Add(run);
+        }
         if (!s.HideType && !s.HideSpeed)
             LinkText.Inlines.Add(new System.Windows.Documents.Run(" · ") { FontSize = Math.Min(s.TypeSize, s.SpeedSize) });
         if (!s.HideSpeed)
-            LinkText.Inlines.Add(new System.Windows.Documents.Run(_info.Speed) { FontSize = s.SpeedSize });
+        {
+            var run = new System.Windows.Documents.Run(_info.Speed) { FontSize = s.SpeedSize };
+            StyleText(run, s.SpeedStyle ?? new FieldStyle());
+            LinkText.Inlines.Add(run);
+        }
         LinkText.Visibility = s.HideType && s.HideSpeed ? Visibility.Collapsed : Visibility.Visible;
 
         // No hostname: let the IP span both rows (vertically centred) instead of sitting under an empty gap.
@@ -611,6 +623,100 @@ public partial class MainWindow : Window
             _settings.Save(_slot);
         }
         EndPreview();
+    }
+
+    // ---------- bold / italic / underline ----------
+
+    private static readonly string[] Weights = { "Light", "Normal", "Medium", "SemiBold", "Bold", "Black" };
+
+    private static FontWeight ToWeight(string? name) => name switch
+    {
+        "Light" => FontWeights.Light,
+        "Medium" => FontWeights.Medium,
+        "SemiBold" => FontWeights.SemiBold,
+        "Bold" => FontWeights.Bold,
+        "Black" => FontWeights.Black,
+        _ => FontWeights.Normal,
+    };
+
+    private static void StyleText(System.Windows.Documents.TextElement el, FieldStyle st)
+    {
+        el.FontWeight = ToWeight(st.Weight);
+        el.FontStyle = st.Italic ? FontStyles.Italic : FontStyles.Normal;
+        if (el is System.Windows.Documents.Inline inline)
+            inline.TextDecorations = st.Underline ? TextDecorations.Underline : null;
+    }
+
+    private static void StyleText(TextBlock tb, FieldStyle st)
+    {
+        tb.FontWeight = ToWeight(st.Weight);
+        tb.FontStyle = st.Italic ? FontStyles.Italic : FontStyles.Normal;
+        tb.TextDecorations = st.Underline ? TextDecorations.Underline : null;
+    }
+
+    private MenuItem StyleMenu()
+    {
+        var fields = new (string Label, FieldStyle Style)[]
+        {
+            ("Hostname", _settings.HostnameStyle),
+            ("IP address", _settings.IpStyle),
+            ("MAC address", _settings.MacStyle),
+            ("Type", _settings.TypeStyle),
+            ("Speed", _settings.SpeedStyle),
+        };
+        var parent = new MenuItem { Header = "Text style" };
+        foreach (var (label, st) in fields)
+        {
+            var sub = new MenuItem { Header = label };
+            var weightItems = new List<MenuItem>();
+            foreach (var w in Weights)
+            {
+                var item = new MenuItem
+                {
+                    Header = w == "SemiBold" ? "Semibold" : w,
+                    FontWeight = ToWeight(w),
+                    IsCheckable = true,
+                    IsChecked = string.Equals(st.Weight, w, StringComparison.OrdinalIgnoreCase),
+                    StaysOpenOnClick = true,
+                };
+                item.Click += (_, _) =>
+                {
+                    st.Weight = w;
+                    foreach (var other in weightItems) other.IsChecked = ReferenceEquals(other, item);
+                    SaveStyle();
+                };
+                weightItems.Add(item);
+                sub.Items.Add(item);
+            }
+            sub.Items.Add(new Separator());
+
+            var italic = new MenuItem { Header = "Italic", FontStyle = FontStyles.Italic, IsCheckable = true, IsChecked = st.Italic, StaysOpenOnClick = true };
+            italic.Click += (_, _) => { st.Italic = italic.IsChecked; SaveStyle(); };
+            sub.Items.Add(italic);
+
+            var underline = new MenuItem { Header = "Underline", IsCheckable = true, IsChecked = st.Underline, StaysOpenOnClick = true };
+            underline.Click += (_, _) => { st.Underline = underline.IsChecked; SaveStyle(); };
+            sub.Items.Add(underline);
+
+            parent.Items.Add(sub);
+        }
+        parent.Items.Add(new Separator());
+        var reset = new MenuItem { Header = "Reset text styles" };
+        reset.Click += (_, _) =>
+        {
+            var d = new WidgetSettings();
+            (_settings.HostnameStyle, _settings.IpStyle, _settings.MacStyle, _settings.TypeStyle, _settings.SpeedStyle) =
+                (d.HostnameStyle, d.IpStyle, d.MacStyle, d.TypeStyle, d.SpeedStyle);
+            SaveStyle();
+        };
+        parent.Items.Add(reset);
+        return parent;
+    }
+
+    private void SaveStyle()
+    {
+        _settings.Save(_slot);
+        ApplyFields();
     }
 
     // While previewing, periodic refreshes must keep the previewed font rather than snap back.
