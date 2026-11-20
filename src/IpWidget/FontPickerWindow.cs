@@ -61,9 +61,19 @@ internal sealed class FontPickerWindow : Window
         };
         _list.MouseDoubleClick += (_, _) => Accept();
 
-        var ok = new Button { Content = "OK", Width = 80, IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };
+        var ok = new Button { Content = "OK", Width = 90, Height = 28, IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };
         ok.Click += (_, _) => Accept();
-        var cancel = new Button { Content = "Cancel", Width = 80, IsCancel = true };
+        // Belt and braces: also accept on the raw mouse-up, in case the Click is swallowed
+        // (e.g. the window wasn't activated because the widget itself never takes focus).
+        ok.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (ok.IsMouseOver) { e.Handled = true; Accept(); }
+        };
+        var cancel = new Button { Content = "Cancel", Width = 90, Height = 28, IsCancel = true };
+        cancel.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (cancel.IsMouseOver) { e.Handled = true; Close(); }
+        };
 
         var buttons = new StackPanel
         {
@@ -95,8 +105,14 @@ internal sealed class FontPickerWindow : Window
         Fill("");
         _list.SelectedItem = current ?? DefaultLabel;
         if (_list.SelectedItem != null) _list.ScrollIntoView(_list.SelectedItem);
-        Loaded += (_, _) => _search.Focus();
+        Loaded += (_, _) =>
+        {
+            Activate();
+            _search.Focus();
+        };
     }
+
+    private bool _accepted;
 
     private void Fill(string filter)
     {
@@ -112,6 +128,8 @@ internal sealed class FontPickerWindow : Window
 
     private void Accept()
     {
+        if (_accepted) return;
+        _accepted = true;
         if (_list.SelectedItem is string name)
             Chosen = name == DefaultLabel ? null : name;
         DialogResult = true;

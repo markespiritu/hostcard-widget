@@ -31,7 +31,11 @@ internal sealed class WidgetSettings
     public double TypeSize { get; set; } = 12;
     public double SpeedSize { get; set; } = 12;
 
-    /// <summary>"full" = 192.168.26.218, "last2" = 26.218, "last1" = .218</summary>
+    /// <summary>Vertical gap between the two rows, and horizontal gap between the left and right columns.</summary>
+    public double RowGap { get; set; } = 1;
+    public double ColumnGap { get; set; } = 18;
+
+    /// <summary>"full" =192.168.26.218, "last2" = 26.218, "last1" = .218</summary>
     public string IpFormat { get; set; } = "full";
 
     /// <summary>Fields hidden from the widget (all shown by default).</summary>
