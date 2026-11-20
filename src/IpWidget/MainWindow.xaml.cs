@@ -94,7 +94,7 @@ public partial class MainWindow : Window
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         // Pin to the bottom of the z-order so it sits on the desktop under every other window.
-        if (msg == NativeMethods.WM_WINDOWPOSCHANGING && !_settings.KeepOnTop)
+        if (msg == NativeMethods.WM_WINDOWPOSCHANGING && !_settings.KeepOnTop && !_forceOnTop)
         {
             var wp = Marshal.PtrToStructure<NativeMethods.WINDOWPOS>(lParam);
             if ((wp.flags & NativeMethods.SWP_NOZORDER) == 0)
@@ -108,7 +108,7 @@ public partial class MainWindow : Window
 
     private void SendToBottom()
     {
-        if (_hwnd == IntPtr.Zero || _settings.KeepOnTop) return;
+        if (_hwnd == IntPtr.Zero || _settings.KeepOnTop || _forceOnTop) return;
         NativeMethods.SetWindowPos(_hwnd, NativeMethods.HWND_BOTTOM, 0, 0, 0, 0,
             NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
     }
@@ -372,6 +372,8 @@ public partial class MainWindow : Window
 
         menu.Items.Add(FieldsMenu());
         menu.Items.Add(IpFormatMenu());
+        menu.Items.Add(HostnameCaseMenu());
+        menu.Items.Add(FontMenu());
         menu.Items.Add(SizeMenu());
         menu.Items.Add(ColorMenu());
 
@@ -457,8 +459,6 @@ public partial class MainWindow : Window
 
     private void Refresh()
     {
-        HostText.Text = Environment.MachineName;
-
         var candidates = NetworkInfo.Candidates();
         NetworkInterface? nic = string.IsNullOrEmpty(_settings.AdapterId)
             ? NetworkInfo.Primary(candidates)
@@ -477,6 +477,12 @@ public partial class MainWindow : Window
         HostText.Visibility = s.HideHostname ? Visibility.Collapsed : Visibility.Visible;
         MacText.Visibility = s.HideMac ? Visibility.Collapsed : Visibility.Visible;
 
+        ApplyFont(_previewing ? _previewFamily : s.FontFamily);
+        HostText.Text = FormatHostname(s.HostnameCase);
+        HostText.FontSize = s.HostnameSize;
+        IpText.FontSize = s.IpSize;
+        MacText.FontSize = s.MacSize;
+
         if (_info == null)
         {
             // Always show why there's nothing, even if the IP field is hidden.
@@ -487,10 +493,6 @@ public partial class MainWindow : Window
             LinkText.Visibility = Visibility.Collapsed;
             return;
         }
-
-        HostText.FontSize = s.HostnameSize;
-        IpText.FontSize = s.IpSize;
-        MacText.FontSize = s.MacSize;
 
         IpText.Text = FormatIp(_info.Ip, s.IpFormat);
         IpText.Visibility = s.HideIp ? Visibility.Collapsed : Visibility.Visible;
@@ -522,6 +524,116 @@ public partial class MainWindow : Window
         HostText.Margin = new Thickness(0, 0, LinkText.Visibility == Visibility.Visible ? 18 : 0, 0);
         IpText.Margin = new Thickness(0, 1, MacText.Visibility == Visibility.Visible ? 18 : 0, 0);
     }
+
+    // ---------- font & hostname case ----------
+
+    private static readonly FontFamily DefaultFont = new("Segoe UI");
+    private static readonly FontFamily DefaultMacFont = new("Consolas");
+
+    /// <summary>Applies a font to every field (null = defaults). Also used for live preview while browsing.</summary>
+    private void ApplyFont(string? family)
+    {
+        var font = string.IsNullOrEmpty(family) ? null : new FontFamily(family);
+        HostText.FontFamily = IpText.FontFamily = LinkText.FontFamily = font ?? DefaultFont;
+        MacText.FontFamily = font ?? DefaultMacFont;
+    }
+
+    private static string FormatHostname(string mode)
+    {
+        // MachineName is the NetBIOS name (always upper case); the DNS host name keeps the case it was typed in.
+        string asTyped;
+        try { asTyped = System.Net.Dns.GetHostName(); } catch { asTyped = Environment.MachineName; }
+        if (!asTyped.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase)
+            && !asTyped.StartsWith(Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+            asTyped = Environment.MachineName;
+
+        return mode switch
+        {
+            "title" => asTyped.Length == 0 ? asTyped : char.ToUpperInvariant(asTyped[0]) + asTyped[1..].ToLowerInvariant(),
+            "lower" => asTyped.ToLowerInvariant(),
+            "asis" => asTyped,
+            _ => asTyped.ToUpperInvariant(),
+        };
+    }
+
+    private MenuItem HostnameCaseMenu()
+    {
+        var parent = new MenuItem { Header = "Hostname capitalization" };
+        foreach (var (key, label) in new[] { ("upper", "UPPERCASE"), ("title", "Capitalized"), ("lower", "lowercase"), ("asis", "As named in Windows") })
+        {
+            var item = new MenuItem
+            {
+                Header = $"{label}   {FormatHostname(key)}",
+                IsCheckable = true,
+                IsChecked = _settings.HostnameCase == key,
+            };
+            item.Click += (_, _) =>
+            {
+                _settings.HostnameCase = key;
+                _settings.Save(_slot);
+                ApplyFields();
+            };
+            parent.Items.Add(item);
+        }
+        return parent;
+    }
+
+    private MenuItem FontMenu()
+    {
+        var item = new MenuItem { Header = $"Font…  ({_settings.FontFamily ?? "Default"})" };
+        item.Click += (_, _) => Dispatcher.BeginInvoke(PickFont);
+        return item;
+    }
+
+    /// <summary>Opens the font list; the widget previews each font as it's selected.</summary>
+    private void PickFont()
+    {
+        var picker = new FontPickerWindow(_settings.FontFamily, InstalledFonts.Value, Preview);
+        // Lift the widget above other windows while picking, so the live preview is actually visible.
+        _forceOnTop = true;
+        Topmost = true;
+        bool ok;
+        try { ok = picker.ShowDialog() == true; }
+        finally
+        {
+            _forceOnTop = false;
+            Topmost = _settings.KeepOnTop;
+            SendToBottom();
+        }
+        if (ok)
+        {
+            _settings.FontFamily = picker.Chosen;
+            _settings.Save(_slot);
+        }
+        EndPreview();
+    }
+
+    // While previewing, periodic refreshes must keep the previewed font rather than snap back.
+    private bool _previewing;
+    private bool _forceOnTop;
+    private string? _previewFamily;
+
+    private void Preview(string? family)
+    {
+        _previewing = true;
+        _previewFamily = family;
+        ApplyFont(family);
+    }
+
+    private void EndPreview()
+    {
+        _previewing = false;
+        _previewFamily = null;
+        ApplyFont(_settings.FontFamily);
+    }
+
+    private static readonly Lazy<List<string>> InstalledFonts = new(() =>
+        Fonts.SystemFontFamilies
+            .Select(f => f.Source)
+            .Where(n => !n.StartsWith("@") && !n.Contains('#'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList());
 
     private static string FormatIp(string ip, string format)
     {

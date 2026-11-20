@@ -18,6 +18,12 @@ internal sealed class WidgetSettings
     /// <summary>Text colour as #RRGGBB.</summary>
     public string TextColor { get; set; } = "#FFFFFF";
 
+    /// <summary>One font for every field; null = default (Segoe UI, with Consolas for the MAC).</summary>
+    public string? FontFamily { get; set; }
+
+    /// <summary>"upper" = FROGGER, "title" = Frogger, "lower" = frogger, "asis" = as typed when the PC was named.</summary>
+    public string HostnameCase { get; set; } = "upper";
+
     /// <summary>Font size of each field, in points at 100% scale.</summary>
     public double HostnameSize { get; set; } = 17;
     public double IpSize { get; set; } = 14;

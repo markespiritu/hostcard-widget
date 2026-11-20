@@ -18,6 +18,8 @@ Handy when you're hopping between several PCs over Moonlight/RDP and can't remem
 | Hide fields (e.g. the MAC, for privacy) | Menu → **Show fields** and untick any of hostname, IP, MAC, type, speed. |
 | Short IP (e.g. `26.218`) | Menu → **IP address format** → Full / Last two parts / Last part only. |
 | Text size per field | Menu → **Text size** → pick a size for hostname, IP, MAC, type and speed separately. |
+| Font | Menu → **Font…** opens a searchable list. The widget switches to each font as you select it (arrow keys or click); **OK** keeps it, **Cancel** puts the old one back. One font is used for every field. |
+| Hostname capitalization | Menu → **Hostname capitalization** → UPPERCASE, Capitalized (`Frogger`), lowercase, or as named in Windows. |
 | Text colour | Menu → **Text color** → a preset, or **Custom…** for the Windows colour picker. Dark colours automatically get a light panel / light halo. |
 | Text only, no background | Menu → untick **Show background**. The text gets a dark halo so it stays readable; holding Ctrl shows a faint outline so you can still grab it. Untick **Text shadow** to drop the halo too. |
 | Show it above windows | Menu → **Keep on top of other windows** |
