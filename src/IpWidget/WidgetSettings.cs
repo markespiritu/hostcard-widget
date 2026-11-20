@@ -63,6 +63,19 @@ internal sealed class WidgetSettings
     /// <summary>Size multiplier for the whole widget (1.0 = default).</summary>
     public double Scale { get; set; } = 1.0;
 
+    public WidgetSettings Clone() =>
+        JsonSerializer.Deserialize<WidgetSettings>(JsonSerializer.Serialize(this)) ?? new();
+
+    /// <summary>Puts back everything the text dialog can change (used when it's cancelled).</summary>
+    public void CopyTextSettingsFrom(WidgetSettings o)
+    {
+        FontFamily = o.FontFamily;
+        HostnameCase = o.HostnameCase;
+        TextColor = o.TextColor;
+        (HostnameSize, IpSize, MacSize, TypeSize, SpeedSize) = (o.HostnameSize, o.IpSize, o.MacSize, o.TypeSize, o.SpeedSize);
+        (HostnameStyle, IpStyle, MacStyle, TypeStyle, SpeedStyle) = (o.HostnameStyle, o.IpStyle, o.MacStyle, o.TypeStyle, o.SpeedStyle);
+    }
+
     public static string Folder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IpWidget");
 
