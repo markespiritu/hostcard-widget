@@ -173,7 +173,7 @@ public partial class MainWindow : Window
 
     // ---------- look ----------
 
-    private static Color ParseColor(string? hex)
+    internal static Color ParseColor(string? hex)
     {
         try { return (Color)ColorConverter.ConvertFromString(hex ?? "#FFFFFF"); }
         catch { return Colors.White; }
@@ -325,9 +325,43 @@ public partial class MainWindow : Window
         var menu = BuildMenu();
         menu.PlacementTarget = Card;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
-        menu.Closed += (_, _) => { _menuOpen = false; SendToBottom(); };
+        menu.Closed += (_, _) => { _menuOpen = false; RemoveEscHook(); _openMenu = null; SendToBottom(); };
         _menuOpen = true;
+        _openMenu = menu;
         menu.IsOpen = true;
+        InstallEscHook();
+    }
+
+    // The widget never takes keyboard focus, so Esc would go to whatever app is in front.
+    // While the menu is open, a low-level keyboard hook catches Esc and closes it.
+    private ContextMenu? _openMenu;
+    private IntPtr _escHook;
+    private NativeMethods.LowLevelMouseProc? _escProc;
+
+    private void InstallEscHook()
+    {
+        if (_escHook != IntPtr.Zero) return;
+        _escProc ??= EscHookProc;
+        _escHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _escProc, NativeMethods.GetModuleHandle(null), 0);
+    }
+
+    private void RemoveEscHook()
+    {
+        if (_escHook == IntPtr.Zero) return;
+        NativeMethods.UnhookWindowsHookEx(_escHook);
+        _escHook = IntPtr.Zero;
+    }
+
+    private IntPtr EscHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && wParam == NativeMethods.WM_KEYDOWN && _openMenu != null
+            && Marshal.ReadInt32(lParam) == NativeMethods.VK_ESCAPE)
+        {
+            var menu = _openMenu;
+            Dispatcher.BeginInvoke(() => menu.IsOpen = false);
+            return new IntPtr(1); // swallow it
+        }
+        return NativeMethods.CallNextHookEx(_escHook, nCode, wParam, lParam);
     }
 
     // ---------- menu ----------
@@ -372,12 +406,10 @@ public partial class MainWindow : Window
 
         menu.Items.Add(FieldsMenu());
         menu.Items.Add(IpFormatMenu());
-        menu.Items.Add(HostnameCaseMenu());
-        menu.Items.Add(FontMenu());
-        menu.Items.Add(SizeMenu());
-        menu.Items.Add(StyleMenu());
+        var text = new MenuItem { Header = "Font, size, style and color…", FontWeight = FontWeights.SemiBold };
+        text.Click += (_, _) => Dispatcher.BeginInvoke(OpenTextSettings);
+        menu.Items.Add(text);
         menu.Items.Add(SpacingMenu());
-        menu.Items.Add(ColorMenu());
 
         var background = new MenuItem { Header = "Show background", IsCheckable = true, IsChecked = _settings.ShowBackground };
         background.Click += (_, _) =>
@@ -479,7 +511,7 @@ public partial class MainWindow : Window
         HostText.Visibility = s.HideHostname ? Visibility.Collapsed : Visibility.Visible;
         MacText.Visibility = s.HideMac ? Visibility.Collapsed : Visibility.Visible;
 
-        ApplyFont(_previewing ? _previewFamily : s.FontFamily);
+        ApplyFont(s.FontFamily);
         HostText.Text = FormatHostname(s.HostnameCase);
         HostText.FontSize = s.HostnameSize;
         IpText.FontSize = s.IpSize;
@@ -555,7 +587,7 @@ public partial class MainWindow : Window
         MacText.FontFamily = font ?? DefaultMacFont;
     }
 
-    private static string FormatHostname(string mode)
+    internal static string FormatHostname(string mode)
     {
         // MachineName is the NetBIOS name (always upper case); the DNS host name keeps the case it was typed in.
         string asTyped;
@@ -573,63 +605,44 @@ public partial class MainWindow : Window
         };
     }
 
-    private MenuItem HostnameCaseMenu()
-    {
-        var parent = new MenuItem { Header = "Hostname capitalization" };
-        foreach (var (key, label) in new[] { ("upper", "UPPERCASE"), ("title", "Capitalized"), ("lower", "lowercase"), ("asis", "As named in Windows") })
-        {
-            var item = new MenuItem
-            {
-                Header = $"{label}   {FormatHostname(key)}",
-                IsCheckable = true,
-                IsChecked = _settings.HostnameCase == key,
-            };
-            item.Click += (_, _) =>
-            {
-                _settings.HostnameCase = key;
-                _settings.Save(_slot);
-                ApplyFields();
-            };
-            parent.Items.Add(item);
-        }
-        return parent;
-    }
+    internal static readonly double[] SizePresets = { 9, 10, 11, 12, 13, 14, 16, 17, 18, 20, 22, 24, 28, 32, 36, 42, 48, 56, 64, 72 };
 
-    private MenuItem FontMenu()
-    {
-        var item = new MenuItem { Header = $"Font…  ({_settings.FontFamily ?? "Default"})" };
-        item.Click += (_, _) => Dispatcher.BeginInvoke(PickFont);
-        return item;
-    }
+    private bool _forceOnTop;
 
-    /// <summary>Opens the font list; the widget previews each font as it's selected.</summary>
-    private void PickFont()
+    /// <summary>
+    /// Opens the text dialog. It edits the live settings so the widget previews every change;
+    /// Cancel restores the snapshot taken here.
+    /// </summary>
+    private void OpenTextSettings()
     {
-        var picker = new FontPickerWindow(_settings.FontFamily, InstalledFonts.Value, Preview);
-        // Lift the widget above other windows while picking, so the live preview is actually visible.
+        var snapshot = _settings.Clone();
+        var dialog = new TextSettingsWindow(_settings, InstalledFonts.Value, () => { ApplyLook(); ApplyFields(); });
+
+        // Lift the widget above other windows while the dialog is open, so the preview is visible.
         _forceOnTop = true;
         Topmost = true;
         bool ok;
-        try { ok = picker.ShowDialog() == true; }
+        try { ok = dialog.ShowDialog() == true; }
         finally
         {
             _forceOnTop = false;
             Topmost = _settings.KeepOnTop;
             SendToBottom();
         }
+
         if (ok)
-        {
-            _settings.FontFamily = picker.Chosen;
             _settings.Save(_slot);
-        }
-        EndPreview();
+        else
+            _settings.CopyTextSettingsFrom(snapshot);
+        ApplyLook();
+        ApplyFields();
     }
 
     // ---------- bold / italic / underline ----------
 
-    private static readonly string[] Weights = { "Light", "Normal", "Medium", "SemiBold", "Bold", "Black" };
+    internal static readonly string[] Weights = { "Light", "Normal", "Medium", "SemiBold", "Bold", "Black" };
 
-    private static FontWeight ToWeight(string? name) => name switch
+    internal static FontWeight ToWeight(string? name) => name switch
     {
         "Light" => FontWeights.Light,
         "Medium" => FontWeights.Medium,
@@ -654,90 +667,6 @@ public partial class MainWindow : Window
         tb.TextDecorations = st.Underline ? TextDecorations.Underline : null;
     }
 
-    private MenuItem StyleMenu()
-    {
-        var fields = new (string Label, FieldStyle Style)[]
-        {
-            ("Hostname", _settings.HostnameStyle),
-            ("IP address", _settings.IpStyle),
-            ("MAC address", _settings.MacStyle),
-            ("Type", _settings.TypeStyle),
-            ("Speed", _settings.SpeedStyle),
-        };
-        var parent = new MenuItem { Header = "Text style" };
-        foreach (var (label, st) in fields)
-        {
-            var sub = new MenuItem { Header = label };
-            var weightItems = new List<MenuItem>();
-            foreach (var w in Weights)
-            {
-                var item = new MenuItem
-                {
-                    Header = w == "SemiBold" ? "Semibold" : w,
-                    FontWeight = ToWeight(w),
-                    IsCheckable = true,
-                    IsChecked = string.Equals(st.Weight, w, StringComparison.OrdinalIgnoreCase),
-                    StaysOpenOnClick = true,
-                };
-                item.Click += (_, _) =>
-                {
-                    st.Weight = w;
-                    foreach (var other in weightItems) other.IsChecked = ReferenceEquals(other, item);
-                    SaveStyle();
-                };
-                weightItems.Add(item);
-                sub.Items.Add(item);
-            }
-            sub.Items.Add(new Separator());
-
-            var italic = new MenuItem { Header = "Italic", FontStyle = FontStyles.Italic, IsCheckable = true, IsChecked = st.Italic, StaysOpenOnClick = true };
-            italic.Click += (_, _) => { st.Italic = italic.IsChecked; SaveStyle(); };
-            sub.Items.Add(italic);
-
-            var underline = new MenuItem { Header = "Underline", IsCheckable = true, IsChecked = st.Underline, StaysOpenOnClick = true };
-            underline.Click += (_, _) => { st.Underline = underline.IsChecked; SaveStyle(); };
-            sub.Items.Add(underline);
-
-            parent.Items.Add(sub);
-        }
-        parent.Items.Add(new Separator());
-        var reset = new MenuItem { Header = "Reset text styles" };
-        reset.Click += (_, _) =>
-        {
-            var d = new WidgetSettings();
-            (_settings.HostnameStyle, _settings.IpStyle, _settings.MacStyle, _settings.TypeStyle, _settings.SpeedStyle) =
-                (d.HostnameStyle, d.IpStyle, d.MacStyle, d.TypeStyle, d.SpeedStyle);
-            SaveStyle();
-        };
-        parent.Items.Add(reset);
-        return parent;
-    }
-
-    private void SaveStyle()
-    {
-        _settings.Save(_slot);
-        ApplyFields();
-    }
-
-    // While previewing, periodic refreshes must keep the previewed font rather than snap back.
-    private bool _previewing;
-    private bool _forceOnTop;
-    private string? _previewFamily;
-
-    private void Preview(string? family)
-    {
-        _previewing = true;
-        _previewFamily = family;
-        ApplyFont(family);
-    }
-
-    private void EndPreview()
-    {
-        _previewing = false;
-        _previewFamily = null;
-        ApplyFont(_settings.FontFamily);
-    }
-
     private static readonly Lazy<List<string>> InstalledFonts = new(() =>
         Fonts.SystemFontFamilies
             .Select(f => f.Source)
@@ -758,96 +687,12 @@ public partial class MainWindow : Window
         };
     }
 
-    private static readonly (string Name, string Hex)[] ColorPresets =
+    internal static readonly (string Name, string Hex)[] ColorPresets =
     {
         ("White", "#FFFFFF"), ("Light gray", "#C8C8C8"), ("Black", "#000000"), ("Yellow", "#FFE066"),
         ("Orange", "#FFA94D"), ("Green", "#69DB7C"), ("Cyan", "#66D9E8"), ("Blue", "#74C0FC"),
         ("Pink", "#F783AC"), ("Red", "#FF6B6B"),
     };
-
-    private MenuItem ColorMenu()
-    {
-        var parent = new MenuItem { Header = "Text color" };
-        bool matched = false;
-        foreach (var (name, hex) in ColorPresets)
-        {
-            bool on = string.Equals(_settings.TextColor, hex, StringComparison.OrdinalIgnoreCase);
-            matched |= on;
-            var item = new MenuItem
-            {
-                Header = name,
-                IsCheckable = true,
-                IsChecked = on,
-                Icon = new Border
-                {
-                    Width = 14, Height = 14, CornerRadius = new CornerRadius(3),
-                    Background = new SolidColorBrush(ParseColor(hex)),
-                    BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1),
-                },
-            };
-            item.Click += (_, _) => SetTextColor(hex);
-            parent.Items.Add(item);
-        }
-        parent.Items.Add(new Separator());
-        var custom = new MenuItem { Header = matched ? "Custom…" : $"Custom ({_settings.TextColor})…", IsCheckable = true, IsChecked = !matched };
-        custom.Click += (_, _) =>
-        {
-            var picked = NativeMethods.PickColor(_hwnd, ParseColor(_settings.TextColor));
-            if (picked is Color c) SetTextColor($"#{c.R:X2}{c.G:X2}{c.B:X2}");
-        };
-        parent.Items.Add(custom);
-        return parent;
-    }
-
-    private void SetTextColor(string hex)
-    {
-        _settings.TextColor = hex;
-        _settings.Save(_slot);
-        ApplyLook();
-    }
-
-    private static readonly double[] SizePresets = { 9, 10, 11, 12, 13, 14, 16, 17, 18, 20, 22, 24, 28, 32, 36, 42, 48 };
-
-    private MenuItem SizeMenu()
-    {
-        var fields = new (string Label, Func<double> Get, Action<double> Set)[]
-        {
-            ("Hostname",    () => _settings.HostnameSize, v => _settings.HostnameSize = v),
-            ("IP address",  () => _settings.IpSize,       v => _settings.IpSize = v),
-            ("MAC address", () => _settings.MacSize,      v => _settings.MacSize = v),
-            ("Type",        () => _settings.TypeSize,     v => _settings.TypeSize = v),
-            ("Speed",       () => _settings.SpeedSize,    v => _settings.SpeedSize = v),
-        };
-        var parent = new MenuItem { Header = "Text size" };
-        foreach (var f in fields)
-        {
-            var sub = new MenuItem { Header = $"{f.Label}  ({f.Get():0.#})" };
-            foreach (var size in SizePresets)
-            {
-                var item = new MenuItem { Header = $"{size:0.#}", IsCheckable = true, IsChecked = Math.Abs(f.Get() - size) < 0.01 };
-                item.Click += (_, _) =>
-                {
-                    f.Set(size);
-                    _settings.Save(_slot);
-                    ApplyFields();
-                };
-                sub.Items.Add(item);
-            }
-            parent.Items.Add(sub);
-        }
-        parent.Items.Add(new Separator());
-        var reset = new MenuItem { Header = "Reset text sizes" };
-        reset.Click += (_, _) =>
-        {
-            var d = new WidgetSettings();
-            (_settings.HostnameSize, _settings.IpSize, _settings.MacSize, _settings.TypeSize, _settings.SpeedSize) =
-                (d.HostnameSize, d.IpSize, d.MacSize, d.TypeSize, d.SpeedSize);
-            _settings.Save(_slot);
-            ApplyFields();
-        };
-        parent.Items.Add(reset);
-        return parent;
-    }
 
     private MenuItem SpacingMenu()
     {
