@@ -74,6 +74,7 @@ internal sealed class WidgetSettings
         TextColor = o.TextColor;
         (HostnameSize, IpSize, MacSize, TypeSize, SpeedSize) = (o.HostnameSize, o.IpSize, o.MacSize, o.TypeSize, o.SpeedSize);
         (HostnameStyle, IpStyle, MacStyle, TypeStyle, SpeedStyle) = (o.HostnameStyle, o.IpStyle, o.MacStyle, o.TypeStyle, o.SpeedStyle);
+        (RowGap, ColumnGap) = (o.RowGap, o.ColumnGap);
     }
 
     public static string Folder =>
