@@ -406,10 +406,9 @@ public partial class MainWindow : Window
 
         menu.Items.Add(FieldsMenu());
         menu.Items.Add(IpFormatMenu());
-        var text = new MenuItem { Header = "Font, size, style and color…", FontWeight = FontWeights.SemiBold };
+        var text = new MenuItem { Header = "Font, style, color and spacing…", FontWeight = FontWeights.SemiBold };
         text.Click += (_, _) => Dispatcher.BeginInvoke(OpenTextSettings);
         menu.Items.Add(text);
-        menu.Items.Add(SpacingMenu());
 
         var background = new MenuItem { Header = "Show background", IsCheckable = true, IsChecked = _settings.ShowBackground };
         background.Click += (_, _) =>
@@ -693,47 +692,6 @@ public partial class MainWindow : Window
         ("Orange", "#FFA94D"), ("Green", "#69DB7C"), ("Cyan", "#66D9E8"), ("Blue", "#74C0FC"),
         ("Pink", "#F783AC"), ("Red", "#FF6B6B"),
     };
-
-    private MenuItem SpacingMenu()
-    {
-        var parent = new MenuItem { Header = "Spacing" };
-
-        MenuItem Group(string label, double[] values, Func<double> get, Action<double> set)
-        {
-            var sub = new MenuItem { Header = $"{label}  ({get():0.#})" };
-            foreach (var v in values)
-            {
-                var item = new MenuItem { Header = $"{v:0.#}", IsCheckable = true, IsChecked = Math.Abs(get() - v) < 0.01, StaysOpenOnClick = true };
-                item.Click += (_, _) =>
-                {
-                    set(v);
-                    _settings.Save(_slot);
-                    ApplyFields();
-                    foreach (MenuItem other in sub.Items) other.IsChecked = ReferenceEquals(other, item);
-                    sub.Header = $"{label}  ({v:0.#})";
-                };
-                sub.Items.Add(item);
-            }
-            return sub;
-        }
-
-        parent.Items.Add(Group("Between rows", new double[] { -6, -4, -2, 0, 1, 2, 4, 6, 8, 12, 16, 20, 28 },
-            () => _settings.RowGap, v => _settings.RowGap = v));
-        parent.Items.Add(Group("Between columns", new double[] { 4, 8, 12, 18, 24, 32, 48, 64 },
-            () => _settings.ColumnGap, v => _settings.ColumnGap = v));
-        parent.Items.Add(new Separator());
-        var reset = new MenuItem { Header = "Reset spacing" };
-        reset.Click += (_, _) =>
-        {
-            var d = new WidgetSettings();
-            _settings.RowGap = d.RowGap;
-            _settings.ColumnGap = d.ColumnGap;
-            _settings.Save(_slot);
-            ApplyFields();
-        };
-        parent.Items.Add(reset);
-        return parent;
-    }
 
     private MenuItem IpFormatMenu()
     {

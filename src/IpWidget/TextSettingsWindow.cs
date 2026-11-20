@@ -29,7 +29,7 @@ internal sealed class TextSettingsWindow : Window
 
         Title = "IP Widget – Text";
         Width = 720;
-        Height = 560;
+        Height = 620;
         MinWidth = 600;
         MinHeight = 420;
         ResizeMode = ResizeMode.CanResizeWithGrip;
@@ -82,6 +82,10 @@ internal sealed class TextSettingsWindow : Window
 
         right.Children.Add(Header("Hostname capitalization", top: 14));
         right.Children.Add(CaseBox());
+
+        right.Children.Add(Header("Spacing", top: 14));
+        right.Children.Add(GapSlider("Between rows", -60, 40, () => _s.RowGap, v => _s.RowGap = v));
+        right.Children.Add(GapSlider("Between columns", -40, 80, () => _s.ColumnGap, v => _s.ColumnGap = v));
 
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 220 });
@@ -266,6 +270,32 @@ internal sealed class TextSettingsWindow : Window
             _changed();
         };
         return box;
+    }
+
+    private UIElement GapSlider(string label, double min, double max, Func<double> get, Action<double> set)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2), Width = 400, HorizontalAlignment = HorizontalAlignment.Left };
+        var name = new TextBlock { Text = label, Width = 110, VerticalAlignment = VerticalAlignment.Center };
+        var value = new TextBlock { Width = 36, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Text = $"{get():0}" };
+        var slider = new Slider
+        {
+            Minimum = min, Maximum = max, Value = get(),
+            SmallChange = 1, LargeChange = 4, IsSnapToTickEnabled = true, TickFrequency = 1,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            value.Text = $"{e.NewValue:0}";
+            if (_loading) return;
+            set(e.NewValue);
+            _changed();
+        };
+        DockPanel.SetDock(name, Dock.Left);
+        DockPanel.SetDock(value, Dock.Right);
+        row.Children.Add(name);
+        row.Children.Add(value);
+        row.Children.Add(slider);
+        return row;
     }
 
     private void FillFonts(string filter)
