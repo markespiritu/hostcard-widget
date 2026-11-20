@@ -3,6 +3,14 @@ using System.Text.Json;
 
 namespace IpWidget;
 
+internal sealed class FieldStyle
+{
+    /// <summary>Light, Normal, Medium, SemiBold, Bold or Black.</summary>
+    public string Weight { get; set; } = "Normal";
+    public bool Italic { get; set; }
+    public bool Underline { get; set; }
+}
+
 /// <summary>Per-slot settings, stored in %APPDATA%\IpWidget\slot{N}.json.</summary>
 internal sealed class WidgetSettings
 {
@@ -31,6 +39,13 @@ internal sealed class WidgetSettings
     public double TypeSize { get; set; } = 12;
     public double SpeedSize { get; set; } = 12;
 
+    /// <summary>Weight / italic / underline per field.</summary>
+    public FieldStyle HostnameStyle { get; set; } = new() { Weight = "SemiBold" };
+    public FieldStyle IpStyle { get; set; } = new();
+    public FieldStyle MacStyle { get; set; } = new();
+    public FieldStyle TypeStyle { get; set; } = new();
+    public FieldStyle SpeedStyle { get; set; } = new();
+
     /// <summary>Vertical gap between the two rows, and horizontal gap between the left and right columns.</summary>
     public double RowGap { get; set; } = 1;
     public double ColumnGap { get; set; } = 18;
@@ -47,6 +62,20 @@ internal sealed class WidgetSettings
 
     /// <summary>Size multiplier for the whole widget (1.0 = default).</summary>
     public double Scale { get; set; } = 1.0;
+
+    public WidgetSettings Clone() =>
+        JsonSerializer.Deserialize<WidgetSettings>(JsonSerializer.Serialize(this)) ?? new();
+
+    /// <summary>Puts back everything the text dialog can change (used when it's cancelled).</summary>
+    public void CopyTextSettingsFrom(WidgetSettings o)
+    {
+        FontFamily = o.FontFamily;
+        HostnameCase = o.HostnameCase;
+        TextColor = o.TextColor;
+        (HostnameSize, IpSize, MacSize, TypeSize, SpeedSize) = (o.HostnameSize, o.IpSize, o.MacSize, o.TypeSize, o.SpeedSize);
+        (HostnameStyle, IpStyle, MacStyle, TypeStyle, SpeedStyle) = (o.HostnameStyle, o.IpStyle, o.MacStyle, o.TypeStyle, o.SpeedStyle);
+        (RowGap, ColumnGap) = (o.RowGap, o.ColumnGap);
+    }
 
     public static string Folder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IpWidget");

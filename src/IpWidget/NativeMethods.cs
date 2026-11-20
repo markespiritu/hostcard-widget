@@ -48,6 +48,9 @@ internal static class NativeMethods
     // Low-level mouse hook: the widget never takes focus, so Windows doesn't reliably send it wheel messages.
     public const int WH_MOUSE_LL = 14;
     public const int WM_MOUSEWHEEL = 0x020A;
+    public const int WH_KEYBOARD_LL = 13;
+    public const int WM_KEYDOWN = 0x0100;
+    public const int VK_ESCAPE = 0x1B;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int X, Y; }
