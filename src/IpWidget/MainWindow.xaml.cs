@@ -15,7 +15,7 @@ public partial class MainWindow : Window
     private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromArgb(0x99, 0x6C, 0xB8, 0xFF));
     private static readonly Brush LightCardBackground = new SolidColorBrush(Color.FromArgb(0xB8, 0xF2, 0xF2, 0xF2));
     private static readonly Brush CardBackground = new SolidColorBrush(Color.FromArgb(0xA6, 0x14, 0x14, 0x14));
-    // Text-only mode while Win+Alt is held: a faint panel so you can see what you're grabbing.
+    // Text-only mode while Shift+Alt is held: a faint panel so you can see what you're grabbing.
     private static readonly Brush GhostBackground = new SolidColorBrush(Color.FromArgb(0x40, 0x14, 0x14, 0x14));
     private static readonly System.Windows.Media.Effects.DropShadowEffect TextShadow = new()
     {
@@ -38,7 +38,7 @@ public partial class MainWindow : Window
     private bool _menuOpen;
     private bool _dragging;
 
-    // Resizing: Win+Alt + mouse wheel, or Win+Alt + drag the bottom-right corner.
+    // Resizing: Shift+Alt + mouse wheel, or Shift+Alt + drag the bottom-right corner.
     private const double MinScale = 0.6, MaxScale = 3.0, GripSize = 18;
     private bool _resizing;
     private double _resizeStartScale, _resizeStartWidth, _resizeStartX;
@@ -55,7 +55,7 @@ public partial class MainWindow : Window
         Top = _settings.Top ?? -10000;
         Title = slot == 1 ? "IP Widget" : $"IP Widget (slot {slot})";
 
-        // Poll Win+Alt: holding them makes the widget clickable/draggable, otherwise clicks pass through.
+        // Poll Shift+Alt: holding them makes the widget clickable/draggable, otherwise clicks pass through.
         _keyTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(60), DispatcherPriority.Input, (_, _) => UpdateInteractive(), Dispatcher);
         _refreshTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) => Refresh(), Dispatcher);
         _debounceTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => { _debounceTimer!.Stop(); Refresh(); }, Dispatcher);
@@ -148,7 +148,7 @@ public partial class MainWindow : Window
         return left + w > vl + 40 && left < vr - 40 && top + h > vt + 40 && top < vb - 40;
     }
 
-    // ---------- click-through / Win+Alt interaction ----------
+    // ---------- click-through / Shift+Alt interaction ----------
 
     private void UpdateInteractive()
     {
@@ -235,7 +235,7 @@ public partial class MainWindow : Window
         _settings.Save(_slot);
     }
 
-    // Only hooked while Win+Alt is held, and only wheel events over the widget are taken.
+    // Only hooked while Shift+Alt is held, and only wheel events over the widget are taken.
     private IntPtr _wheelHook;
     private NativeMethods.LowLevelMouseProc? _wheelProc;
 
