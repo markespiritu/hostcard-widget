@@ -27,6 +27,8 @@ Handy when you're hopping between several PCs over Moonlight/RDP and can't remem
 
 Without Shift + Alt held, the widget ignores the mouse completely, so clicks go through to the desktop or window beneath it.
 
+**From a Mac (e.g. over Moonlight):** press **Shift + Option**. Option is the Mac key in the Alt position, and Moonlight sends it to Windows as Alt.
+
 The info refreshes as soon as Windows reports a network change, and every 15 seconds anyway (Wi-Fi link speed moves around).
 
 ### Two adapters at once
