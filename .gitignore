@@ -3,3 +3,5 @@ obj/
 dist/
 .vs/
 *.user
+mac/build/
+mac/screenshot.png
