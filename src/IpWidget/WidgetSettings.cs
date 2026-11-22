@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace IpWidget;
 
@@ -14,7 +15,11 @@ internal sealed class FieldStyle
 /// <summary>Per-slot settings, stored in %APPDATA%\IpWidget\slot{N}.json.</summary>
 internal sealed class WidgetSettings
 {
-    /// <summary>NetworkInterface.Id of the chosen adapter; null/empty means Automatic (primary adapter).</summary>
+    /// <summary>NetworkInterface.Ids of the adapters to show, one row each. Empty = Automatic (every active Wi-Fi/Ethernet).</summary>
+    public List<string> Interfaces { get; set; } = new();
+
+    /// <summary>The single adapter older versions showed; moved into Interfaces on load and no longer written.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AdapterId { get; set; }
     public double? Left { get; set; }
     public double? Top { get; set; }
@@ -46,7 +51,7 @@ internal sealed class WidgetSettings
     public FieldStyle TypeStyle { get; set; } = new();
     public FieldStyle SpeedStyle { get; set; } = new();
 
-    /// <summary>Vertical gap between the two rows, and horizontal gap between the left and right columns.</summary>
+    /// <summary>Vertical gap between rows (hostname, then one per adapter), and horizontal gap between columns.</summary>
     public double RowGap { get; set; } = 1;
     public double ColumnGap { get; set; } = 18;
 
@@ -88,10 +93,20 @@ internal sealed class WidgetSettings
         {
             var path = PathFor(slot);
             if (File.Exists(path))
-                return JsonSerializer.Deserialize<WidgetSettings>(File.ReadAllText(path)) ?? new();
+                return (JsonSerializer.Deserialize<WidgetSettings>(File.ReadAllText(path)) ?? new()).Migrated();
         }
         catch { /* corrupt or unreadable: start fresh */ }
         return new();
+    }
+
+    /// <summary>A chosen adapter from an older version becomes a one-item Interfaces list; Automatic stays Automatic.</summary>
+    private WidgetSettings Migrated()
+    {
+        Interfaces ??= new();
+        if (!string.IsNullOrEmpty(AdapterId) && Interfaces.Count == 0)
+            Interfaces.Add(AdapterId);
+        AdapterId = null;
+        return this;
     }
 
     public void Save(int slot)

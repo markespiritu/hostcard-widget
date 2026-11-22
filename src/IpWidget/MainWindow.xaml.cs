@@ -179,14 +179,24 @@ public partial class MainWindow : Window
         catch { return Colors.White; }
     }
 
+    // Text colour: IP (and the icon) at full strength, MAC and speed slightly faded when there's a background.
+    private Brush _primary = Brushes.White, _secondary = Brushes.White;
+    private const string SecondaryTag = "secondary";
+
     private void ApplyLook()
     {
         var text = ParseColor(_settings.TextColor);
         // Dark text gets a light panel / light halo; light text gets dark ones.
         bool darkText = (0.2126 * text.R + 0.7152 * text.G + 0.0722 * text.B) / 255.0 < 0.5;
-        var primary = new SolidColorBrush(text);
-        var secondary = new SolidColorBrush(Color.FromArgb(0xB3, text.R, text.G, text.B));
-        HostText.Foreground = IpText.Foreground = primary;
+        _primary = new SolidColorBrush(text);
+        // No panel behind the text: full strength everywhere so the halo can carry it on any wallpaper.
+        _secondary = _settings.ShowBackground ? new SolidColorBrush(Color.FromArgb(0xB3, text.R, text.G, text.B)) : _primary;
+        HostText.Foreground = _primary;
+        foreach (UIElement el in Rows.Children)
+        {
+            if (el is TextBlock tb) tb.Foreground = Equals(tb.Tag, SecondaryTag) ? _secondary : _primary;
+            else if (el is System.Windows.Shapes.Shape icon) icon.Fill = _primary;
+        }
         TextShadow.Color = HaloShadow.Color = darkText ? Colors.White : Colors.Black;
 
         if (_settings.ShowBackground)
@@ -195,12 +205,9 @@ public partial class MainWindow : Window
             Card.BorderBrush = _interactive ? ActiveBorder : IdleBorder;
             Body.Effect = null;
             Halo.Effect = null;
-            LinkText.Foreground = MacText.Foreground = secondary;
         }
         else
         {
-            // No panel behind the text: full strength everywhere so the halo can carry it on any wallpaper.
-            LinkText.Foreground = MacText.Foreground = primary;
             Card.Background = _interactive ? GhostBackground : Brushes.Transparent;
             Card.BorderBrush = _interactive ? ActiveBorder : Brushes.Transparent;
             Body.Effect = _settings.TextShadow ? TextShadow : null;
@@ -377,26 +384,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new MenuItem { Header = $"IP Widget  (slot {_slot})", IsEnabled = false });
         menu.Items.Add(new Separator());
 
-        var adapterMenu = new MenuItem { Header = "Adapter" };
-        var auto = new MenuItem { Header = "Automatic (primary adapter)", IsCheckable = true, IsChecked = string.IsNullOrEmpty(_settings.AdapterId) };
-        auto.Click += (_, _) => SelectAdapter(null);
-        adapterMenu.Items.Add(auto);
-        adapterMenu.Items.Add(new Separator());
-        foreach (var n in NetworkInfo.Candidates())
-        {
-            var info = NetworkInfo.Describe(n);
-            var item = new MenuItem
-            {
-                Header = $"{info.Name}  ({info.Kind}, {(info.IsUp ? "connected" : "disconnected")})",
-                ToolTip = info.Description,
-                IsCheckable = true,
-                IsChecked = _settings.AdapterId == info.Id,
-            };
-            string id = info.Id;
-            item.Click += (_, _) => SelectAdapter(id);
-            adapterMenu.Items.Add(item);
-        }
-        menu.Items.Add(adapterMenu);
+        menu.Items.Add(InterfacesMenu());
 
         var onTop = new MenuItem { Header = "Keep on top of other windows", IsCheckable = true, IsChecked = _settings.KeepOnTop };
         onTop.Click += (_, _) =>
@@ -482,9 +470,50 @@ public partial class MainWindow : Window
         return menu;
     }
 
-    private void SelectAdapter(string? id)
+    private MenuItem InterfacesMenu()
     {
-        _settings.AdapterId = id;
+        var parent = new MenuItem { Header = "Interfaces" };
+        var chosen = _settings.Interfaces;
+        var auto = new MenuItem { Header = "Automatic (all active)", IsCheckable = true, IsChecked = chosen.Count == 0 };
+        auto.Click += (_, _) => SetInterfaces(new List<string>());
+        parent.Items.Add(auto);
+        parent.Items.Add(new Separator());
+
+        // Real Wi-Fi/Ethernet adapters, plus anything ticked that isn't one of them (e.g. chosen in an older version).
+        var adapters = NetworkInfo.Candidates();
+        adapters.AddRange(chosen.Where(id => adapters.All(a => a.Id != id))
+            .Select(id => NetworkInfo.Find(id) ?? (_lastSeen.TryGetValue(id, out var seen) ? seen : null))
+            .OfType<AdapterInfo>());
+
+        foreach (var a in adapters)
+        {
+            string state = a.IsUp ? a.Ip ?? "connected, no IPv4 address" : "disconnected";
+            var item = new MenuItem
+            {
+                Header = $"{a.Name}  —  {state}",
+                ToolTip = a.Description,
+                IsCheckable = true,
+                IsChecked = chosen.Count == 0 ? NetworkInfo.IsActive(a) : chosen.Contains(a.Id),
+                Icon = TypeIcon(a.Kind, 12, "Normal", SystemColors.MenuTextBrush),
+            };
+            string id = a.Id;
+            item.Click += (_, _) => ToggleInterface(id);
+            parent.Items.Add(item);
+        }
+        return parent;
+    }
+
+    private void ToggleInterface(string id)
+    {
+        // Coming from Automatic: start from what's showing now.
+        var list = _settings.Interfaces.Count == 0 ? _rows.Select(r => r.Id).ToList() : new List<string>(_settings.Interfaces);
+        if (!list.Remove(id)) list.Add(id);
+        SetInterfaces(list); // empty again = back to Automatic
+    }
+
+    private void SetInterfaces(List<string> ids)
+    {
+        _settings.Interfaces = ids;
         _settings.Save(_slot);
         Refresh();
     }
@@ -496,99 +525,219 @@ public partial class MainWindow : Window
 
     private void Refresh()
     {
+        var chosen = _settings.Interfaces;
         var candidates = NetworkInfo.Candidates();
-        NetworkInterface? nic = string.IsNullOrEmpty(_settings.AdapterId)
-            ? NetworkInfo.Primary(candidates)
-            : candidates.FirstOrDefault(n => n.Id == _settings.AdapterId);
-
-        _info = nic == null ? null : NetworkInfo.Describe(nic);
-        ApplyFields();
-    }
-
-    private AdapterInfo? _info;
-
-    /// <summary>Fills the text and hides whatever the user switched off; empty rows collapse on their own.</summary>
-    private void ApplyFields()
-    {
-        var s = _settings;
-        HostText.Visibility = s.HideHostname ? Visibility.Collapsed : Visibility.Visible;
-        MacText.Visibility = s.HideMac ? Visibility.Collapsed : Visibility.Visible;
-
-        ApplyFont(s.FontFamily);
-        HostText.Text = FormatHostname(s.HostnameCase);
-        HostText.FontSize = s.HostnameSize;
-        IpText.FontSize = s.IpSize;
-        MacText.FontSize = s.MacSize;
-        StyleText(HostText, s.HostnameStyle ?? new FieldStyle { Weight = "SemiBold" });
-        StyleText(IpText, s.IpStyle ?? new FieldStyle());
-        StyleText(MacText, s.MacStyle ?? new FieldStyle());
-
-        if (_info == null)
+        List<AdapterInfo> rows;
+        if (chosen.Count == 0)
         {
-            // Always show why there's nothing, even if the IP field is hidden.
-            IpText.Text = string.IsNullOrEmpty(s.AdapterId) ? "No network adapter" : "Adapter not found";
-            IpText.Visibility = Visibility.Visible;
-            MacText.Text = "";
-            LinkText.Text = "";
-            LinkText.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        IpText.Text = FormatIp(_info.Ip, s.IpFormat);
-        IpText.Visibility = s.HideIp ? Visibility.Collapsed : Visibility.Visible;
-        MacText.Text = _info.Mac;
-
-        // Type and speed share a line but can have different sizes, so they're separate runs.
-        LinkText.Inlines.Clear();
-        if (!s.HideType)
-        {
-            var run = new System.Windows.Documents.Run(_info.Kind) { FontSize = s.TypeSize };
-            StyleText(run, s.TypeStyle ?? new FieldStyle());
-            LinkText.Inlines.Add(run);
-        }
-        if (!s.HideType && !s.HideSpeed)
-            LinkText.Inlines.Add(new System.Windows.Documents.Run(" · ") { FontSize = Math.Min(s.TypeSize, s.SpeedSize) });
-        if (!s.HideSpeed)
-        {
-            var run = new System.Windows.Documents.Run(_info.Speed) { FontSize = s.SpeedSize };
-            StyleText(run, s.SpeedStyle ?? new FieldStyle());
-            LinkText.Inlines.Add(run);
-        }
-        LinkText.Visibility = s.HideType && s.HideSpeed ? Visibility.Collapsed : Visibility.Visible;
-
-        // No hostname: let the IP span both rows (vertically centred) instead of sitting under an empty gap.
-        if (s.HideHostname)
-        {
-            Grid.SetRow(IpText, 0);
-            Grid.SetRowSpan(IpText, 2);
+            rows = candidates.Where(NetworkInfo.IsActive).ToList();
         }
         else
         {
-            Grid.SetRow(IpText, 1);
-            Grid.SetRowSpan(IpText, 1);
+            // Ticked adapters stay visible when they're down; one that's been unplugged keeps its last-seen row.
+            rows = NetworkInfo.Sorted(chosen
+                .Select(id => candidates.FirstOrDefault(a => a.Id == id) ?? NetworkInfo.Find(id)
+                    ?? (_lastSeen.TryGetValue(id, out var seen) ? seen with { IsUp = false, Ip = null, Speed = null } : null))
+                .OfType<AdapterInfo>());
         }
+        foreach (var r in rows) _lastSeen[r.Id] = r;
 
-        // Keep the two columns apart only when both sides of a row are showing.
-        // Gaps are user-adjustable (Spacing menu): rows only get a gap when there's a row above them.
-        double col = s.ColumnGap, row = s.RowGap;
-        bool topRowShown = HostText.Visibility == Visibility.Visible || LinkText.Visibility == Visibility.Visible;
-        HostText.Margin = new Thickness(0, 0, LinkText.Visibility == Visibility.Visible ? col : 0, 0);
-        IpText.Margin = new Thickness(0, s.HideHostname || !topRowShown ? 0 : row, MacText.Visibility == Visibility.Visible ? col : 0, 0);
-        MacText.Margin = new Thickness(0, topRowShown ? row : 0, 0, 0);
+        _rows = rows;
+        ApplyFields();
     }
 
-    // ---------- font & hostname case ----------
+    private List<AdapterInfo> _rows = new();
+    private readonly Dictionary<string, AdapterInfo> _lastSeen = new();
 
     private static readonly FontFamily DefaultFont = new("Segoe UI");
     private static readonly FontFamily DefaultMacFont = new("Consolas");
 
-    /// <summary>Applies a font to every field (null = defaults). Also used for live preview while browsing.</summary>
-    private void ApplyFont(string? family)
+    /// <summary>
+    /// The hostname, then one row per adapter: type icon, IP, MAC, speed. The rows share one grid so the
+    /// columns line up, and a column every row has hidden takes no space.
+    /// </summary>
+    private void ApplyFields()
     {
-        var font = string.IsNullOrEmpty(family) ? null : new FontFamily(family);
-        HostText.FontFamily = IpText.FontFamily = LinkText.FontFamily = font ?? DefaultFont;
-        MacText.FontFamily = font ?? DefaultMacFont;
+        var s = _settings;
+        var font = string.IsNullOrEmpty(s.FontFamily) ? null : new FontFamily(s.FontFamily);
+        HostText.Visibility = s.HideHostname ? Visibility.Collapsed : Visibility.Visible;
+        HostText.FontFamily = font ?? DefaultFont;
+        HostText.Text = FormatHostname(s.HostnameCase);
+        HostText.FontSize = s.HostnameSize;
+        StyleText(HostText, s.HostnameStyle ?? new FieldStyle { Weight = "SemiBold" });
+
+        // Columns: 0 icon, 1 IP, 2 MAC, 3 speed.
+        var lines = new List<FrameworkElement?[]>();
+        if (_rows.Count == 0)
+        {
+            // Always show why there's nothing, even if the IP field is hidden.
+            string why = s.Interfaces.Count == 0 ? "No network connection" : "Adapter not found";
+            lines.Add(new FrameworkElement?[] { null, Text(why, s.IpSize, s.IpStyle, font ?? DefaultFont, false), null, null });
+        }
+        foreach (var r in _rows)
+        {
+            var line = new FrameworkElement?[4];
+            if (!s.HideType)
+            {
+                // Wi-Fi and Ethernet get an icon (like the Mac version); anything else keeps its name as text.
+                line[0] = (FrameworkElement?)TypeIcon(r.Kind, s.TypeSize, s.TypeStyle?.Weight, _primary)
+                          ?? Text(r.Kind, s.TypeSize, s.TypeStyle, font ?? DefaultFont, true);
+            }
+            if (!s.HideIp)
+                line[1] = Text(r.IsUp ? FormatIp(r.Ip ?? "No IPv4 address", s.IpFormat) : "disconnected",
+                               s.IpSize, s.IpStyle, font ?? DefaultFont, false);
+            if (!s.HideMac)
+                line[2] = Text(r.Mac, s.MacSize, s.MacStyle, font ?? DefaultMacFont, true);
+            if (!s.HideSpeed && r.IsUp)
+                line[3] = Text(r.Speed ?? "–", s.SpeedSize, s.SpeedStyle, font ?? DefaultFont, true);
+            if (!r.IsUp)
+                foreach (var el in line) if (el != null) el.Opacity = 0.45;
+            lines.Add(line);
+        }
+
+        Rows.Children.Clear();
+        Rows.RowDefinitions.Clear();
+        Rows.ColumnDefinitions.Clear();
+        var used = Enumerable.Range(0, 4).Where(c => lines.Any(l => l[c] != null)).ToList();
+        foreach (var _ in used) Rows.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // Gaps are user-adjustable: a row only gets the row gap when there's something above it.
+        bool above = !s.HideHostname;
+        foreach (var line in lines.Where(l => l.Any(e => e != null)))
+        {
+            int row = Rows.RowDefinitions.Count;
+            Rows.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (int i = 0; i < used.Count; i++)
+            {
+                if (line[used[i]] is not FrameworkElement el) continue;
+                // The icon sits close to its IP; the column gap applies between the text columns.
+                double left = i == 0 ? 0 : used[i - 1] == 0 ? Math.Max(4, s.TypeSize * 0.45) : s.ColumnGap;
+                el.Margin = new Thickness(left, above ? s.RowGap : 0, 0, 0);
+                el.VerticalAlignment = VerticalAlignment.Center;
+                if (used[i] == 0) el.HorizontalAlignment = HorizontalAlignment.Center;
+                Grid.SetRow(el, row);
+                Grid.SetColumn(el, i);
+                Rows.Children.Add(el);
+            }
+            above = true;
+        }
     }
+
+    /// <summary>One cell of an adapter row. MAC, speed and non-icon types use the faded colour when there's a background.</summary>
+    private TextBlock Text(string text, double size, FieldStyle? style, FontFamily font, bool secondary)
+    {
+        var tb = new TextBlock
+        {
+            Text = text,
+            FontSize = size,
+            FontFamily = font,
+            Foreground = secondary ? _secondary : _primary,
+            Tag = secondary ? SecondaryTag : null,
+        };
+        StyleText(tb, style ?? new FieldStyle());
+        return tb;
+    }
+
+    // ---------- type icons ----------
+
+    /// <summary>
+    /// Vector Wi-Fi / Ethernet icon sized to the type font, or null for other adapter kinds.
+    /// In the widget it sits inside Body, so it gets the same halo as the text.
+    /// </summary>
+    private static System.Windows.Shapes.Path? TypeIcon(string kind, double fontSize, string? weight, Brush fill)
+    {
+        // Roughly the height of the "wifi" SF Symbol at this point size.
+        double h = Math.Round(fontSize * 0.8, 1);
+        // Stroke weight roughly like SF Symbols at Regular; heavier weights get thicker lines.
+        double wScale = weight switch
+        {
+            "Light" => 0.8, "Medium" => 1.1, "SemiBold" => 1.2, "Bold" => 1.35, "Black" => 1.5, _ => 1.0,
+        };
+        double line = Math.Max(1, h * 0.12 * wScale);
+
+        Geometry? geometry = kind switch
+        {
+            "WLAN" => WifiGeometry(h, line),
+            "LAN" => PortGeometry(h, line),
+            _ => null,
+        };
+        if (geometry == null) return null;
+        geometry.Freeze();
+
+        return new System.Windows.Shapes.Path
+        {
+            Data = geometry,
+            Width = geometry.Bounds.Right,
+            Height = h,
+            Fill = fill,
+            SnapsToDevicePixels = false,
+        };
+    }
+
+    /// <summary>Three-arc fan with a dot at its centre, like the "wifi" SF Symbol.</summary>
+    private static Geometry WifiGeometry(double h, double line)
+    {
+        double dot = line * 0.95;
+        double angle = 47 * Math.PI / 180;      // each arc spans ±47° from vertical
+        double cy = h - dot;                     // fan centre = dot centre, at the bottom
+        double outer = cy - line / 2;            // outer arc's top edge touches the top
+        double cx = outer * Math.Sin(angle) + line / 2;
+
+        var arcs = new PathGeometry();
+        foreach (double r in new[] { outer, outer * 0.655, outer * 0.31 })
+        {
+            var fig = new PathFigure { StartPoint = new Point(cx - r * Math.Sin(angle), cy - r * Math.Cos(angle)), IsFilled = false };
+            fig.Segments.Add(new ArcSegment(new Point(cx + r * Math.Sin(angle), cy - r * Math.Cos(angle)),
+                new Size(r, r), 0, false, SweepDirection.Clockwise, true));
+            arcs.Figures.Add(fig);
+        }
+        var pen = new Pen(Brushes.Black, line) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+        var group = new GeometryGroup { FillRule = FillRule.Nonzero };
+        group.Children.Add(arcs.GetWidenedPathGeometry(pen));
+        group.Children.Add(new EllipseGeometry(new Point(cx, cy), dot, dot));
+        return group;
+    }
+
+    /// <summary>
+    /// RJ45 jack seen from the front: a solid block with the socket opening (and its latch notch) cut out,
+    /// and contact pins along the top of the socket. Same shape as mac/Sources/WiredGlyphs.swift.
+    /// </summary>
+    private static Geometry PortGeometry(double h, double line)
+    {
+        double w = h * 1.12;
+        var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
+        group.Children.Add(new RectangleGeometry(new Rect(0.25, 0.25, w - 0.5, h - 0.5), h * 0.16, h * 0.16));
+
+        // Socket: wide upper part, narrower latch notch at the bottom.
+        double t = line * 1.15;
+        double left = t, right = w - t, top = t, bottom = h - t;
+        double notchW = w * 0.36, notchTop = top + (bottom - top) * 0.62;
+        double mid = w / 2;
+        var hole = new PathFigure { StartPoint = new Point(left, top), IsClosed = true };
+        foreach (var p in new[]
+        {
+            new Point(right, top), new Point(right, notchTop),
+            new Point(mid + notchW / 2, notchTop), new Point(mid + notchW / 2, bottom),
+            new Point(mid - notchW / 2, bottom), new Point(mid - notchW / 2, notchTop),
+            new Point(left, notchTop),
+        })
+            hole.Segments.Add(new LineSegment(p, false));
+        group.Children.Add(new PathGeometry(new[] { hole }));
+
+        // Contact pins along the top of the socket.
+        const int pins = 4;
+        double pinW = Math.Max(0.8, line * 0.5), pinH = (notchTop - top) * 0.38;
+        double span = right - left - line * 1.2;
+        for (int i = 0; i < pins; i++)
+        {
+            double x = left + line * 0.6 + span * (i + 0.5) / pins - pinW / 2;
+            group.Children.Add(new RectangleGeometry(new Rect(x, top, pinW, pinH)));
+        }
+        return group;
+    }
+
+    // ---------- hostname case ----------
 
     internal static string FormatHostname(string mode)
     {
@@ -699,7 +848,7 @@ public partial class MainWindow : Window
 
     private MenuItem IpFormatMenu()
     {
-        string sample = _info?.Ip is string ip && ip.Split('.').Length == 4 ? ip : "192.168.26.218";
+        string sample = _rows.Select(r => r.Ip).FirstOrDefault(ip => ip?.Split('.').Length == 4) ?? "192.168.26.218";
         var parent = new MenuItem { Header = "IP address format" };
         foreach (var (key, label) in new[] { ("full", "Full"), ("last2", "Last two parts"), ("last1", "Last part only") })
         {
@@ -727,7 +876,7 @@ public partial class MainWindow : Window
             ("Hostname",    () => _settings.HideHostname, v => _settings.HideHostname = v),
             ("IP address",  () => _settings.HideIp,       v => _settings.HideIp = v),
             ("MAC address", () => _settings.HideMac,      v => _settings.HideMac = v),
-            ("Type (LAN/WLAN)", () => _settings.HideType, v => _settings.HideType = v),
+            ("Type icon (Wi-Fi / Ethernet)", () => _settings.HideType, v => _settings.HideType = v),
             ("Speed",       () => _settings.HideSpeed,    v => _settings.HideSpeed = v),
         };
 

@@ -13,9 +13,10 @@
         UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display">
 
-    <!-- Two compact rows:
-         HOSTNAME                 WLAN · 1.2 Gbps
-         192.168.1.20          AA-BB-CC-DD-EE-FF -->
+    <!-- The hostname, then one row per adapter (built in code, columns line up):
+         HOSTNAME
+         [wifi]  192.168.1.20   AA-BB-CC-DD-EE-FF   1.2 Gbps
+         [port]  192.168.1.21   11-22-33-44-55-66   1 Gbps -->
     <Border x:Name="Card"
             CornerRadius="12"
             Background="#A6141414"
@@ -25,30 +26,11 @@
             >
         <!-- Two nested shadows (text-only mode) build a darker halo than one shadow can. -->
         <Decorator x:Name="Halo">
-        <Grid x:Name="Body">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-
-            <TextBlock x:Name="HostText" Grid.Row="0" Grid.Column="0"
-                       Foreground="White" FontSize="17" FontWeight="SemiBold"
-                       VerticalAlignment="Center" Margin="0,0,18,0" Text="HOSTNAME"/>
-            <TextBlock x:Name="LinkText" Grid.Row="0" Grid.Column="1"
-                       Foreground="#B3FFFFFF" FontSize="12"
-                       VerticalAlignment="Center" HorizontalAlignment="Right"/>
-
-            <TextBlock x:Name="IpText" Grid.Row="1" Grid.Column="0"
-                       Foreground="White" FontSize="14"
-                       VerticalAlignment="Center" Margin="0,1,18,0"/>
-            <TextBlock x:Name="MacText" Grid.Row="1" Grid.Column="1"
-                       Foreground="#B3FFFFFF" FontSize="12" FontFamily="Consolas"
-                       VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,1,0,0"/>
-        </Grid>
+        <StackPanel x:Name="Body">
+            <TextBlock x:Name="HostText"
+                       Foreground="White" FontSize="17" FontWeight="SemiBold" Text="HOSTNAME"/>
+            <Grid x:Name="Rows"/>
+        </StackPanel>
         </Decorator>
     </Border>
 </Window>

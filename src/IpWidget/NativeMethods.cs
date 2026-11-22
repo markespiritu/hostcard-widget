@@ -41,9 +41,29 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int vKey);
 
-    /// <summary>Index of the interface Windows would use to reach the given IPv4 address (network byte order).</summary>
+    // MIB_IF_ROW2 (netioapi.h): only the input index and the hardware flag are used, so it's read as raw bytes.
+    private const int IfRow2Size = 1352, IfRow2IndexOffset = 8, IfRow2FlagsOffset = 1152;
+
     [DllImport("iphlpapi.dll")]
-    public static extern int GetBestInterface(uint dwDestAddr, out uint pdwBestIfIndex);
+    private static extern int GetIfEntry2(IntPtr row);
+
+    /// <summary>
+    /// True for a real network card (the HardwareInterface flag, same as Get-NetAdapter's), false for
+    /// VPN, Hyper-V, VMware, Wi-Fi Direct and other virtual adapters. Null if Windows can't say.
+    /// </summary>
+    public static bool? IsHardwareInterface(long ifIndex)
+    {
+        if (ifIndex <= 0) return null;
+        IntPtr row = Marshal.AllocHGlobal(IfRow2Size);
+        try
+        {
+            for (int i = 0; i < IfRow2Size; i++) Marshal.WriteByte(row, i, 0);
+            Marshal.WriteInt32(row, IfRow2IndexOffset, (int)ifIndex);
+            if (GetIfEntry2(row) != 0) return null;
+            return (Marshal.ReadByte(row, IfRow2FlagsOffset) & 0x01) != 0;
+        }
+        finally { Marshal.FreeHGlobal(row); }
+    }
 
     // Low-level mouse hook: the widget never takes focus, so Windows doesn't reliably send it wheel messages.
     public const int WH_MOUSE_LL = 14;
