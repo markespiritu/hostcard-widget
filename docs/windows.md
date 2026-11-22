@@ -2,7 +2,8 @@
 
 ![Widget on Windows](images/windows.png)
 
-The Windows version shows **hostname, IP address, MAC address, type (LAN/WLAN) and connection speed** for one network adapter.
+The Windows version shows **hostname, IP address, MAC address, connection type and speed** for one network adapter.
+The type is drawn as an icon in front of the speed: a Wi-Fi symbol or an Ethernet port. The icons come with [#6](https://github.com/markespiritu/hostcard-widget/pull/6).
 It needs Windows 11. Back to the [main README](../README.md).
 
 ## Install

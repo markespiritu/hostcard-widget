@@ -18,8 +18,10 @@ the answer sits right there on the desktop, under your windows.
 | Hostname | yes | yes |
 | IPv4 address (full, last two parts, or last part) | yes | yes |
 | MAC address | yes | yes |
-| Type | text: `LAN` / `WLAN` | icon: Ethernet port / Wi-Fi |
+| Type | icon: Ethernet port / Wi-Fi | icon: Ethernet port / Wi-Fi |
 | Link speed | yes | yes (Wi-Fi: current transmit rate) |
+
+On Windows, the type icons come with [#6](https://github.com/markespiritu/hostcard-widget/pull/6).
 
 Every field can be hidden (for example the MAC, for privacy), and the font, size, weight, colour and spacing are all adjustable.
 The info refreshes as soon as the network changes, and on a timer as well (Wi-Fi speed moves around).
