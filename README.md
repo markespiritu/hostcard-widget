@@ -9,7 +9,11 @@ the answer sits right there on the desktop, under your windows.
 | Windows | macOS |
 | --- | --- |
 | ![Widget on Windows](docs/images/windows.png) | ![Widget on macOS](docs/images/mac.png) |
-| One network adapter per widget. Run it twice for two adapters. | One widget lists every active interface, with a Wi-Fi or Ethernet icon per row. |
+| One widget lists every active adapter, with a Wi-Fi or Ethernet icon per row. | One widget lists every active interface, with a Wi-Fi or Ethernet icon per row. |
+
+Both start on **Automatic**: every connected Wi-Fi and Ethernet adapter with an IPv4 address gets a row
+(so a machine on both LAN and Wi-Fi shows two), and VPN and other virtual adapters are left out.
+Menu → **Interfaces** picks specific ones instead.
 
 ## What it shows
 
@@ -21,7 +25,7 @@ the answer sits right there on the desktop, under your windows.
 | Type | icon: Ethernet port / Wi-Fi | icon: Ethernet port / Wi-Fi |
 | Link speed | yes | yes (Wi-Fi: current transmit rate) |
 
-On Windows, the type icons come with [#6](https://github.com/markespiritu/hostcard-widget/pull/6).
+On Windows, the type icons and one row per adapter come with [#6](https://github.com/markespiritu/hostcard-widget/pull/6).
 
 Every field can be hidden (for example the MAC, for privacy), and the font, size, weight, colour and spacing are all adjustable.
 The info refreshes as soon as the network changes, and on a timer as well (Wi-Fi speed moves around).
@@ -65,7 +69,7 @@ Builds are done locally, not in CI.
 
 ## More detail
 
-- [Windows guide](docs/windows.md): every menu option, running two adapters at once, where settings are stored.
+- [Windows guide](docs/windows.md): every menu option, choosing adapters, where settings are stored.
 - [macOS guide](mac/README.md): every menu option, choosing interfaces, where settings are stored.
 
 ## Repository layout
