@@ -540,14 +540,23 @@ public partial class MainWindow : Window
 
         // Type and speed share a line but can have different sizes, so they're separate runs.
         LinkText.Inlines.Clear();
-        if (!s.HideType)
+        // Wi-Fi and Ethernet get an icon (like the Mac version); anything else keeps its name as text.
+        var icon = s.HideType ? null : TypeIcon(_info.Kind, s.TypeSize, (s.TypeStyle ?? new FieldStyle()).Weight);
+        if (icon != null)
+        {
+            LinkText.Inlines.Add(new System.Windows.Documents.InlineUIContainer(icon)
+            {
+                BaselineAlignment = BaselineAlignment.Center,
+            });
+        }
+        else if (!s.HideType)
         {
             var run = new System.Windows.Documents.Run(_info.Kind) { FontSize = s.TypeSize };
             StyleText(run, s.TypeStyle ?? new FieldStyle());
             LinkText.Inlines.Add(run);
         }
         if (!s.HideType && !s.HideSpeed)
-            LinkText.Inlines.Add(new System.Windows.Documents.Run(" · ") { FontSize = Math.Min(s.TypeSize, s.SpeedSize) });
+            LinkText.Inlines.Add(new System.Windows.Documents.Run(icon != null ? " " : " · ") { FontSize = Math.Min(s.TypeSize, s.SpeedSize) });
         if (!s.HideSpeed)
         {
             var run = new System.Windows.Documents.Run(_info.Speed) { FontSize = s.SpeedSize };
@@ -575,6 +584,107 @@ public partial class MainWindow : Window
         HostText.Margin = new Thickness(0, 0, LinkText.Visibility == Visibility.Visible ? col : 0, 0);
         IpText.Margin = new Thickness(0, s.HideHostname || !topRowShown ? 0 : row, MacText.Visibility == Visibility.Visible ? col : 0, 0);
         MacText.Margin = new Thickness(0, topRowShown ? row : 0, 0, 0);
+    }
+
+    // ---------- type icons ----------
+
+    /// <summary>
+    /// Vector Wi-Fi / Ethernet icon sized to the type font, or null for other adapter kinds.
+    /// Its fill follows LinkText's colour, and it sits inside Body so it gets the same halo as the text.
+    /// </summary>
+    private System.Windows.Shapes.Path? TypeIcon(string kind, double fontSize, string? weight)
+    {
+        // Roughly the height of the "wifi" SF Symbol at this point size.
+        double h = Math.Round(fontSize * 0.8, 1);
+        // Stroke weight roughly like SF Symbols at Regular; heavier weights get thicker lines.
+        double wScale = weight switch
+        {
+            "Light" => 0.8, "Medium" => 1.1, "SemiBold" => 1.2, "Bold" => 1.35, "Black" => 1.5, _ => 1.0,
+        };
+        double line = Math.Max(1, h * 0.12 * wScale);
+
+        Geometry? geometry = kind switch
+        {
+            "WLAN" => WifiGeometry(h, line),
+            "LAN" => PortGeometry(h, line),
+            _ => null,
+        };
+        if (geometry == null) return null;
+        geometry.Freeze();
+
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = geometry,
+            Width = geometry.Bounds.Right,
+            Height = h,
+            SnapsToDevicePixels = false,
+        };
+        path.SetBinding(System.Windows.Shapes.Shape.FillProperty,
+            new System.Windows.Data.Binding(nameof(TextBlock.Foreground)) { Source = LinkText });
+        return path;
+    }
+
+    /// <summary>Three-arc fan with a dot at its centre, like the "wifi" SF Symbol.</summary>
+    private static Geometry WifiGeometry(double h, double line)
+    {
+        double dot = line * 0.95;
+        double angle = 47 * Math.PI / 180;      // each arc spans ±47° from vertical
+        double cy = h - dot;                     // fan centre = dot centre, at the bottom
+        double outer = cy - line / 2;            // outer arc's top edge touches the top
+        double cx = outer * Math.Sin(angle) + line / 2;
+
+        var arcs = new PathGeometry();
+        foreach (double r in new[] { outer, outer * 0.655, outer * 0.31 })
+        {
+            var fig = new PathFigure { StartPoint = new Point(cx - r * Math.Sin(angle), cy - r * Math.Cos(angle)), IsFilled = false };
+            fig.Segments.Add(new ArcSegment(new Point(cx + r * Math.Sin(angle), cy - r * Math.Cos(angle)),
+                new Size(r, r), 0, false, SweepDirection.Clockwise, true));
+            arcs.Figures.Add(fig);
+        }
+        var pen = new Pen(Brushes.Black, line) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+        var group = new GeometryGroup { FillRule = FillRule.Nonzero };
+        group.Children.Add(arcs.GetWidenedPathGeometry(pen));
+        group.Children.Add(new EllipseGeometry(new Point(cx, cy), dot, dot));
+        return group;
+    }
+
+    /// <summary>
+    /// RJ45 jack seen from the front: a solid block with the socket opening (and its latch notch) cut out,
+    /// and contact pins along the top of the socket. Same shape as mac/Sources/WiredGlyphs.swift.
+    /// </summary>
+    private static Geometry PortGeometry(double h, double line)
+    {
+        double w = h * 1.12;
+        var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
+        group.Children.Add(new RectangleGeometry(new Rect(0.25, 0.25, w - 0.5, h - 0.5), h * 0.16, h * 0.16));
+
+        // Socket: wide upper part, narrower latch notch at the bottom.
+        double t = line * 1.15;
+        double left = t, right = w - t, top = t, bottom = h - t;
+        double notchW = w * 0.36, notchTop = top + (bottom - top) * 0.62;
+        double mid = w / 2;
+        var hole = new PathFigure { StartPoint = new Point(left, top), IsClosed = true };
+        foreach (var p in new[]
+        {
+            new Point(right, top), new Point(right, notchTop),
+            new Point(mid + notchW / 2, notchTop), new Point(mid + notchW / 2, bottom),
+            new Point(mid - notchW / 2, bottom), new Point(mid - notchW / 2, notchTop),
+            new Point(left, notchTop),
+        })
+            hole.Segments.Add(new LineSegment(p, false));
+        group.Children.Add(new PathGeometry(new[] { hole }));
+
+        // Contact pins along the top of the socket.
+        const int pins = 4;
+        double pinW = Math.Max(0.8, line * 0.5), pinH = (notchTop - top) * 0.38;
+        double span = right - left - line * 1.2;
+        for (int i = 0; i < pins; i++)
+        {
+            double x = left + line * 0.6 + span * (i + 0.5) / pins - pinW / 2;
+            group.Children.Add(new RectangleGeometry(new Rect(x, top, pinW, pinH)));
+        }
+        return group;
     }
 
     // ---------- font & hostname case ----------
