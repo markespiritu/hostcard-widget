@@ -1,31 +1,51 @@
-using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
 namespace IpWidget;
 
+/// <summary>One widget row. Ip is null when the adapter has no IPv4 address; Speed is null when it's down.</summary>
 internal sealed record AdapterInfo(
     string Id,
     string Name,
     string Description,
     string Kind,
     bool IsUp,
-    string Speed,
+    string? Speed,
     string Mac,
-    string Ip);
+    string? Ip);
 
 internal static class NetworkInfo
 {
-    /// <summary>Adapters worth offering in the menu: real or virtual NICs with a MAC address.</summary>
-    public static List<NetworkInterface> Candidates()
+    /// <summary>
+    /// Network cards worth offering in the Interfaces menu: real Wi-Fi and Ethernet adapters, wired first.
+    /// VPN, Hyper-V, VMware, Bluetooth, Wi-Fi Direct and other virtual adapters are left out.
+    /// </summary>
+    public static List<AdapterInfo> Candidates() =>
+        Sorted(All()
+            .Where(n => KindOf(n) is "LAN" or "WLAN" && NativeMethods.IsHardwareInterface(IfIndex(n)) != false)
+            .Select(Describe));
+
+    /// <summary>Row order, the same as the Mac version: wired first, then by name.</summary>
+    public static List<AdapterInfo> Sorted(IEnumerable<AdapterInfo> adapters) =>
+        adapters
+            .OrderBy(a => a.Kind == "LAN" ? 0 : 1)
+            .ThenBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>What "Automatic (all active)" shows: every connected candidate with an IPv4 address.</summary>
+    public static bool IsActive(AdapterInfo a) => a.IsUp && a.Ip != null;
+
+    /// <summary>Any adapter with a MAC address, virtual ones included (one ticked in an older version may be virtual).</summary>
+    public static AdapterInfo? Find(string id) =>
+        All().Where(n => n.Id == id).Select(Describe).FirstOrDefault();
+
+    private static List<NetworkInterface> All()
     {
         try
         {
             return NetworkInterface.GetAllNetworkInterfaces()
                 .Where(n => n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
                 .Where(n => n.GetPhysicalAddress().GetAddressBytes().Length == 6)
-                .OrderByDescending(n => n.OperationalStatus == OperationalStatus.Up)
-                .ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
         catch
@@ -34,30 +54,7 @@ internal static class NetworkInfo
         }
     }
 
-    /// <summary>The adapter Windows uses for the default route (what "Automatic" shows).</summary>
-    public static NetworkInterface? Primary(List<NetworkInterface> candidates)
-    {
-        try
-        {
-            // 1.1.1.1 in network byte order; nothing is sent, this only asks the routing table.
-            uint dest = BitConverter.ToUInt32(IPAddress.Parse("1.1.1.1").GetAddressBytes(), 0);
-            if (NativeMethods.GetBestInterface(dest, out uint index) == 0)
-            {
-                var match = candidates.FirstOrDefault(n => IPv4Index(n) == index);
-                if (match != null) return match;
-            }
-        }
-        catch { /* fall through to the heuristic */ }
-
-        return candidates
-            .Where(n => n.OperationalStatus == OperationalStatus.Up)
-            .OrderByDescending(HasGateway)
-            .ThenBy(n => KindOf(n) switch { "LAN" => 0, "WLAN" => 1, _ => 2 })
-            .FirstOrDefault()
-            ?? candidates.FirstOrDefault();
-    }
-
-    public static AdapterInfo Describe(NetworkInterface n)
+    private static AdapterInfo Describe(NetworkInterface n)
     {
         bool up = n.OperationalStatus == OperationalStatus.Up;
         return new AdapterInfo(
@@ -66,12 +63,12 @@ internal static class NetworkInfo
             n.Description,
             KindOf(n),
             up,
-            up ? FormatSpeed(SafeSpeed(n)) : "Disconnected",
+            up ? FormatSpeed(SafeSpeed(n)) : null,
             FormatMac(n.GetPhysicalAddress()),
-            up ? (IPv4Of(n) ?? "No IPv4 address") : "-");
+            up ? IPv4Of(n) : null);
     }
 
-    public static string KindOf(NetworkInterface n) => n.NetworkInterfaceType switch
+    private static string KindOf(NetworkInterface n) => n.NetworkInterfaceType switch
     {
         NetworkInterfaceType.Ethernet or NetworkInterfaceType.Ethernet3Megabit or
         NetworkInterfaceType.FastEthernetT or NetworkInterfaceType.FastEthernetFx or
@@ -95,20 +92,17 @@ internal static class NetworkInfo
         catch { return null; }
     }
 
-    private static long IPv4Index(NetworkInterface n)
-    {
-        try { return n.GetIPProperties().GetIPv4Properties()?.Index ?? -1; }
-        catch { return -1; }
-    }
-
-    private static bool HasGateway(NetworkInterface n)
+    /// <summary>Interface index (the same for IPv4 and IPv6); IPv6 covers adapters with IPv4 turned off.</summary>
+    private static long IfIndex(NetworkInterface n)
     {
         try
         {
-            return n.GetIPProperties().GatewayAddresses
-                .Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any));
+            var p = n.GetIPProperties();
+            if (n.Supports(NetworkInterfaceComponent.IPv4)) return p.GetIPv4Properties()?.Index ?? -1;
+            if (n.Supports(NetworkInterfaceComponent.IPv6)) return p.GetIPv6Properties()?.Index ?? -1;
         }
-        catch { return false; }
+        catch { /* unknown */ }
+        return -1;
     }
 
     private static long SafeSpeed(NetworkInterface n)
