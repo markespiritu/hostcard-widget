@@ -1,50 +1,78 @@
-# IP Widget
+# Hostcard widget
 
-A small desktop widget for Windows 11 that shows which machine you're on:
-**hostname, IP address, MAC address, type (LAN/WLAN) and connection speed** for one network adapter.
-Handy when you're hopping between several PCs over Moonlight/RDP and can't remember which is which.
+A small desktop widget for **Windows 11** and **macOS** that shows which machine you're on:
+the **hostname, IP address, MAC address, connection type (LAN or Wi-Fi) and link speed**.
 
-## Use it
+Handy when you hop between several machines over Moonlight or Remote Desktop and can't remember which is which:
+the answer sits right there on the desktop, under your windows.
 
-1. Copy `IpWidget.exe` anywhere on the machine (it's a single portable file, no install, no .NET needed).
-2. Run it. The widget appears at the top-right of the main screen, sitting on the desktop underneath your windows.
-
-| Action | How |
+| Windows | macOS |
 | --- | --- |
-| Move it | Hold **Shift + Alt** and drag it. The border turns blue while Shift + Alt are held. Position is remembered. |
-| Resize it | Hold **Shift + Alt** and scroll the mouse wheel over it, or hold **Shift + Alt** and drag its bottom-right corner. Size is remembered; menu → **Reset size** goes back to 100%. |
-| Options menu | Hold **Shift + Alt** and right-click it. |
-| Pick the adapter | Menu → **Adapter**. *Automatic* follows whichever adapter Windows uses for internet traffic. |
-| Hide fields (e.g. the MAC, for privacy) | Menu → **Show fields** and untick any of hostname, IP, MAC, type, speed. |
-| Short IP (e.g. `26.218`) | Menu → **IP address format** → Full / Last two parts / Last part only. |
-| Font, size, style, colour, spacing | Menu → **Font, style, color and spacing…** opens one dialog: a searchable font list (one font for every field), a size, weight (Light to Black), italic and underline per field, the text colour (presets or **Custom…**), hostname capitalization (UPPERCASE, Capitalized `Frogger`, lowercase, as named in Windows), and spacing sliders (between rows -60 to 40, so rows can overlap; between columns -40 to 80). The widget updates as you change things; **OK** keeps them, **Cancel** or **Esc** undoes them. Dark colours automatically get a light panel / light halo. |
-| Close the menu | **Esc**, or click anywhere else. |
-| Text only, no background | Menu → untick **Show background**. The text gets a dark halo so it stays readable; holding Shift + Alt shows a faint outline so you can still grab it. Untick **Text shadow** to drop the halo too. |
-| Show it above windows | Menu → **Keep on top of other windows** |
-| Start with Windows | Menu → **Start with Windows** (adds a shortcut to your Startup folder) |
-| Lost it off-screen | Menu → **Reset position** (it also resets itself if its saved spot is no longer on any screen) |
-| Quit | Menu → **Exit** |
+| ![Widget on Windows](docs/images/windows.png) | ![Widget on macOS](docs/images/mac.png) |
+| One network adapter per widget. Run it twice for two adapters. | One widget lists every active interface, with a Wi-Fi or Ethernet icon per row. |
 
-Without Shift + Alt held, the widget ignores the mouse completely, so clicks go through to the desktop or window beneath it.
+## What it shows
 
-**From a Mac (e.g. over Moonlight):** press **Shift + Option**. Option is the Mac key in the Alt position, and Moonlight sends it to Windows as Alt.
+| Field | Windows | macOS |
+| --- | --- | --- |
+| Hostname | yes | yes |
+| IPv4 address (full, last two parts, or last part) | yes | yes |
+| MAC address | yes | yes |
+| Type | text: `LAN` / `WLAN` | icon: Ethernet port / Wi-Fi |
+| Link speed | yes | yes (Wi-Fi: current transmit rate) |
 
-The info refreshes as soon as Windows reports a network change, and every 15 seconds anyway (Wi-Fi link speed moves around).
+Every field can be hidden (for example the MAC, for privacy), and the font, size, weight, colour and spacing are all adjustable.
+The info refreshes as soon as the network changes, and on a timer as well (Wi-Fi speed moves around).
 
-### Two adapters at once
+## Moving it
 
-Run the exe a second time. Each copy takes the next free **slot** (1, 2, 3 …) and keeps its own adapter, position
-and on-top setting, so you can have one widget for Ethernet and one for Wi-Fi.
-You can also choose the slot yourself: `IpWidget.exe --slot 2`. The "Start with Windows" shortcut for each slot
-launches that slot, so both come back after a reboot.
+The widget ignores the mouse, so clicks go straight through to whatever is underneath.
+To grab it, **hold the modifier keys**:
 
-Settings live in `%APPDATA%\IpWidget\slot1.json`, `slot2.json`, …
+| | Windows | macOS |
+| --- | --- | --- |
+| Modifier | **Shift + Alt** | **Shift + Option** |
+| Move | modifier + drag | modifier + drag |
+| Options menu | modifier + right-click | modifier + right-click |
+| Resize | modifier + mouse wheel, or drag the bottom-right corner | font size in the options menu |
+
+A blue outline shows while the keys are held. The position is remembered.
+Shift + Alt was chosen because it passes through Moonlight: from a Mac, press **Shift + Option**
+(Moonlight sends Option to Windows as Alt).
+
+## Install
+
+There is no installer and no update check. Each build is one portable file you copy to the machine yourself.
+
+**Windows 11:** copy `IpWidget.exe` anywhere and run it. No .NET install needed. Use **Start with Windows** in the menu to have it come back after a reboot.
+
+**macOS 13 or later:** copy `IPWidget.app` to `/Applications` (or anywhere) and open it. It has no Dock icon.
+The app is ad-hoc signed, not notarized, so on a Mac that didn't build it, the first launch is blocked:
+right-click the app, choose **Open**, then **Open** again, or run `xattr -dr com.apple.quarantine IPWidget.app`.
+Use **Launch at login** in the menu to start it automatically.
 
 ## Build
 
-Needs the .NET 8 SDK.
+| | Windows | macOS |
+| --- | --- | --- |
+| Needs | .NET 8 SDK | Xcode command-line tools (`xcode-select --install`) |
+| Command | `.\build.ps1` (x64) or `.\build.ps1 -Arch arm64` | `mac/build.sh` |
+| Output | `dist\IpWidget.exe` (single self-contained exe) | `mac/build/IPWidget.app` (universal arm64 + x86_64) |
 
-```powershell
-.\build.ps1              # -> dist\IpWidget.exe (x64)
-.\build.ps1 -Arch arm64  # -> dist\IpWidget-arm64.exe
+Builds are done locally, not in CI.
+
+## More detail
+
+- [Windows guide](docs/windows.md): every menu option, running two adapters at once, where settings are stored.
+- [macOS guide](mac/README.md): every menu option, choosing interfaces, where settings are stored.
+
+## Repository layout
+
 ```
+src/IpWidget/   Windows app (C#, WPF, .NET 8)
+build.ps1       Windows build script
+mac/            macOS app (Swift, AppKit) and mac/build.sh
+docs/           Windows guide and screenshots
+```
+
+The apps themselves are still named **IP Widget** (`IpWidget.exe`, `IPWidget.app`).
