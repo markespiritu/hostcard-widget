@@ -172,16 +172,18 @@ final class WidgetView: NSView {
     /// The icon sits close to its IP; the column gap applies between the text columns.
     private func iconGap(_ f: NSFont) -> CGFloat { max(4, f.pointSize * 0.45) }
 
+    private func symbol(_ name: String, font: NSFont, color: NSColor) -> NSImage? {
+        guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
+        let cfg = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: Look.systemWeight(settings.typeStyle.weight))
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        return img.withSymbolConfiguration(cfg)
+    }
+
+    /// Wi-Fi uses the SF Symbol; wired is a drawn RJ45 port at the same height.
     private func icon(for kind: LinkKind, font: NSFont, color: NSColor) -> NSImage? {
-        let names = kind == .wifi ? ["wifi"] : ["cable.connector", "network"]
-        for name in names {
-            guard let img = NSImage(systemSymbolName: name, accessibilityDescription: kind == .wifi ? "Wi-Fi" : "Ethernet") else { continue }
-            let w = Look.systemWeight(settings.typeStyle.weight)
-            let cfg = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: w)
-                .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-            return img.withSymbolConfiguration(cfg)
-        }
-        return nil
+        let wifi = symbol("wifi", font: font, color: color)
+        if kind == .wifi { return wifi }
+        return WiredGlyphs.port(height: wifi?.size.height ?? font.pointSize, color: color, weight: settings.typeStyle.weight)
     }
 
     private func format(ip: String, _ fmt: String) -> String {

@@ -212,8 +212,13 @@ final class WidgetController: NSObject, NSWindowDelegate, NSMenuDelegate {
             let it = item("\(c.displayName) (\(c.bsdName)) — \(state)", checked: on) { [weak self] in
                 self?.toggleInterface(c.bsdName)
             }
-            it.image = NSImage(systemSymbolName: c.kind == .wifi ? "wifi" : "cable.connector", accessibilityDescription: nil)
-                ?? NSImage(systemSymbolName: "network", accessibilityDescription: nil)
+            if c.kind == .wifi {
+                it.image = NSImage(systemSymbolName: "wifi", accessibilityDescription: nil)
+            } else {
+                let img = WiredGlyphs.port(height: 12, color: .black, weight: "Normal")
+                img.isTemplate = true
+                it.image = img
+            }
             ifaces.addItem(it)
         }
         let ifItem = NSMenuItem(title: "Interfaces", action: nil, keyEquivalent: "")
