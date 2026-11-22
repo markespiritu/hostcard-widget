@@ -16,6 +16,11 @@ struct WidgetSettings: Codable, Equatable {
     /// Top-left corner of the widget in screen coordinates (Cocoa: y grows upwards).
     var left: Double?
     var top: Double?
+    /// Where the widget sits for each display configuration, relative to the screen it's on.
+    /// Optional so settings saved by older builds still decode.
+    var placementsByConfig: [String: Placement]?
+    /// The last position used on each screen, in any configuration (fallback for new configurations).
+    var placementsByScreen: [String: Placement]?
 
     var keepOnTop = false
     var showBackground = true

@@ -42,7 +42,7 @@ To grab it, **hold the modifier keys**:
 | Options menu | modifier + right-click | modifier + right-click |
 | Resize | modifier + mouse wheel, or drag the bottom-right corner | font size in the options menu |
 
-A blue outline shows while the keys are held. The position is remembered.
+A blue outline shows while the keys are held. The position is remembered (on the Mac, for each display setup, so it comes back when a monitor is plugged in or unplugged).
 Shift + Alt was chosen because it passes through Moonlight: from a Mac, press **Shift + Option**
 (Moonlight sends Option to Windows as Alt).
 

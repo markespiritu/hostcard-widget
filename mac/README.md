@@ -28,7 +28,7 @@ xattr -dr com.apple.quarantine IPWidget.app
 
 | Action | How |
 | --- | --- |
-| Move it | Hold **Shift + Option** and drag it. A blue outline shows while the keys are held. Position is remembered. |
+| Move it | Hold **Shift + Option** and drag it. A blue outline shows while the keys are held. Position is remembered for each display setup: unplug or plug in a monitor and it goes back to where you last put it with that set of screens (or on that screen). |
 | Options menu | Hold **Shift + Option** and right-click it. **Esc** closes the menu. |
 | Pick interfaces | Menu → **Interfaces**. *Automatic (all active)* shows every connected Wi-Fi/Ethernet interface. Tick specific ones to show only those; a ticked interface that's unplugged stays visible, dimmed, as "disconnected". |
 | Hide fields | Menu → **Show fields**: hostname, IP, MAC, type icon, interface name (en0, off by default), speed. |
@@ -37,7 +37,7 @@ xattr -dr com.apple.quarantine IPWidget.app
 | Text only | Menu → untick **Show background**. The text gets a dark halo (light halo for dark colours); untick **Text shadow** to drop it. |
 | Show it above windows | Menu → **Keep on top of other windows** |
 | Start at login | Menu → **Launch at login** (if macOS asks, approve it in System Settings → General → Login Items) |
-| Lost it | Menu → **Reset position** (it also resets itself if its saved spot is no longer on any screen) |
+| Lost it | Menu → **Reset position** (forgets the spot for the current display setup and goes back to the top-right of the main screen) |
 | Quit | Menu → **Quit IP Widget** |
 
 Without Shift + Option held the widget ignores the mouse, so clicks go straight through to the desktop.
