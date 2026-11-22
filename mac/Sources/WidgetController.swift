@@ -21,6 +21,8 @@ final class WidgetController: NSObject, NSWindowDelegate, NSMenuDelegate {
     private var candidates: [InterfaceInfo] = []
     /// The app that was in front before the menu/dialog took the keyboard; it gets focus back afterwards.
     private var previousApp: NSRunningApplication?
+    /// Pending re-placement after the displays change (macOS sends several notifications in a row).
+    private var screenChange: DispatchWorkItem?
 
     /// Just above the Finder's desktop icons, below every normal window.
     private static let desktopLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
@@ -56,7 +58,7 @@ final class WidgetController: NSObject, NSWindowDelegate, NSMenuDelegate {
         // Wi-Fi rate moves around; the watcher covers address/link changes.
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refresh() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                               object: nil, queue: .main) { [weak self] _ in self?.clampOnScreen() }
+                                               object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
     }
 
     // MARK: - position
@@ -73,45 +75,51 @@ final class WidgetController: NSObject, NSWindowDelegate, NSMenuDelegate {
         panel.setFrame(NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height), display: true)
     }
 
+    /// Puts the widget where it was last dragged to for this display configuration (see PlacementLogic.resolve).
     private func place() {
-        let size = view.intrinsicContentSize
-        if let l = settings.left, let t = settings.top {
-            let r = NSRect(x: l, y: t - size.height, width: size.width, height: size.height)
-            if isOnScreen(r) {
-                panel.setFrame(r, display: true)
-                return
-            }
-        }
-        placeDefault()
+        let frame = PlacementLogic.resolve(size: view.intrinsicContentSize, screens: ScreenDesc.current(), settings: settings)
+        panel.setFrame(frame, display: true)
     }
 
+    /// Reset position: forget this configuration's spot and this screen's spot, go back to the default.
     private func placeDefault() {
-        let size = view.intrinsicContentSize
-        let area = NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        panel.setFrame(NSRect(x: area.maxX - size.width - 24, y: area.maxY - 24 - size.height,
-                              width: size.width, height: size.height), display: true)
-    }
-
-    /// At least 40 pt of the widget must be on some screen.
-    private func isOnScreen(_ r: NSRect) -> Bool {
-        NSScreen.screens.contains { s in
-            let i = s.frame.intersection(r)
-            return !i.isNull && i.width >= min(40, r.width) && i.height >= min(40, r.height)
-        }
-    }
-
-    private func clampOnScreen() {
-        if !isOnScreen(panel.frame) { placeDefault() }
-    }
-
-    private func savePosition() {
-        settings.left = Double(panel.frame.minX)
-        settings.top = Double(panel.frame.maxY)
+        let screens = ScreenDesc.current()
+        settings.placementsByConfig?[PlacementLogic.configKey(screens)] = nil
+        if let s = PlacementLogic.screen(for: panel.frame, in: screens) { settings.placementsByScreen?[s.id] = nil }
+        settings.left = nil
+        settings.top = nil
         settings.save()
+        panel.setFrame(PlacementLogic.defaultFrame(size: view.intrinsicContentSize, screens: screens), display: true)
     }
 
+    /// A monitor was connected/disconnected or rearranged. macOS fires this several times and moves our
+    /// window itself in between, so wait for it to settle, then put the widget back where it belongs.
+    /// Moves made by macOS are never saved: only a user drag (onDragEnded) saves a position.
+    private func screensChanged() {
+        screenChange?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            screenChange = nil
+            place()
+            panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+            applyLevel()
+            panel.orderFrontRegardless()
+        }
+        screenChange = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
+    }
+
+    /// performDrag can return before the window server finishes the move, so the drag is saved as the
+    /// window moves. Only while Shift+Option is held (or its drag is still going) and no display change
+    /// is settling, so moves made by macOS never overwrite the saved spot.
     func windowDidMove(_ notification: Notification) {
-        if interactive { savePosition() }
+        if interactive && screenChange == nil { savePosition() }
+    }
+
+    /// Called when a Shift+Option drag ends, and as the window moves during one.
+    private func savePosition() {
+        PlacementLogic.record(panel.frame, screens: ScreenDesc.current(), into: &settings, now: Date().timeIntervalSince1970)
+        settings.save()
     }
 
     // MARK: - Shift+Option = interactive
